@@ -25,8 +25,9 @@ export type MarkResult = {
 
 export const markAttendanceByToken = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => markSchema.parse(input))
+  .validator((input: unknown) => markSchema.parse(input))
   .handler(async ({ data, context }): Promise<MarkResult> => {
+
     const studentToken = parseStudentToken(data.token);
 
     try {
