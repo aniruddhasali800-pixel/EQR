@@ -12,7 +12,9 @@ import {
   QrCode,
   ScanLine,
   UserCheck,
+  HardDrive,
 } from "lucide-react";
+
 import { AppShell } from "@/components/AppShell";
 import { QrScannerDialog } from "@/components/QrScannerDialog";
 import { Button } from "@/components/ui/button";
@@ -128,14 +130,20 @@ function Dashboard() {
             <ScanLine className="size-6" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="font-display text-lg font-semibold">
-              {isStaff ? "Live QR attendance & approvals" : "Mark & approve attendance"}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-display text-lg font-semibold">
+                {isStaff ? "Live QR attendance & approvals" : "Mark & approve attendance"}
+              </h2>
+              <Badge variant="outline" className="gap-1 border-emerald-500/40 text-emerald-700 bg-emerald-50/50">
+                <HardDrive className="size-3 text-emerald-600" /> Local Storage Ready
+              </Badge>
+            </div>
             <p className="text-sm text-muted-foreground">
               {isStaff
                 ? "Start a session and project a QR code, or scan student QR codes to approve attendance."
                 : "Point your camera at the lecture QR code, or show your personal QR code to your teacher."}
             </p>
+
           </div>
           {isStaff ? (
             <div className="flex flex-wrap gap-2">

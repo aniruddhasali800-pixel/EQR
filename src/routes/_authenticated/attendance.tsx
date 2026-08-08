@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { Loader2, QrCode, RefreshCcw, ScanLine, Square, Users } from "lucide-react";
+import { FileSpreadsheet, Loader2, Printer, QrCode, RefreshCcw, ScanLine, Share2, Square, Users } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { QrScannerDialog } from "@/components/QrScannerDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { exportToExcel, exportToPdf, shareAttendance } from "@/lib/export-utils";
+
 import {
   Select,
   SelectContent,
@@ -346,13 +348,87 @@ function AttendancePage() {
       />
 
       {session ? (
-        <section className="mt-6">
-          <div className="flex items-center gap-2">
-            <Users className="size-4 text-primary" />
-            <h2 className="text-lg font-semibold">Present students</h2>
-            <Badge variant="outline">{present.data?.length ?? 0}</Badge>
+        <section className="mt-6 space-y-3">
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Users className="size-4 text-primary" />
+              <h2 className="text-lg font-semibold">Present students</h2>
+              <Badge variant="outline">{present.data?.length ?? 0}</Badge>
+            </div>
+
+            {(present.data ?? []).length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() =>
+                    exportToExcel(
+                      (present.data ?? []).map((p) => ({
+                        name: p.name,
+                        roll: p.roll,
+                        email: p.email,
+                        phone: p.phone,
+                        className: selectedSection?.name,
+                        subject: subjects.data?.find((s) => s.id === subjectId)?.name,
+                        markedAt: p.markedAt,
+                        status: p.status || "Approved",
+                      })),
+                      selectedSection?.name ? `Attendance_${selectedSection.name}` : "Attendance",
+                    )
+                  }
+                >
+                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel (.csv)
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() =>
+                    exportToPdf(
+                      (present.data ?? []).map((p) => ({
+                        name: p.name,
+                        roll: p.roll,
+                        email: p.email,
+                        phone: p.phone,
+                        className: selectedSection?.name,
+                        subject: subjects.data?.find((s) => s.id === subjectId)?.name,
+                        markedAt: p.markedAt,
+                        status: p.status || "Approved",
+                      })),
+                      selectedSection?.name ? `Class ${selectedSection.name}` : "Lecture Attendance",
+                    )
+                  }
+                >
+                  <Printer className="size-3.5 text-blue-600" /> Export PDF / Print
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                  onClick={() =>
+                    shareAttendance(
+                      (present.data ?? []).map((p) => ({
+                        name: p.name,
+                        roll: p.roll,
+                        email: p.email,
+                        phone: p.phone,
+                        markedAt: p.markedAt,
+                      })),
+                      selectedSection?.name ? `Class ${selectedSection.name}` : "Lecture Attendance",
+                    )
+                  }
+                >
+                  <Share2 className="size-3.5 text-emerald-600" /> Share to WhatsApp
+                </Button>
+              </div>
+            ) : null}
           </div>
-          <div className="mt-3 space-y-2">
+
+          <div className="space-y-2">
             {(present.data ?? []).length === 0 ? (
               <div className="surface-card p-6 text-center text-sm text-muted-foreground">
                 Waiting for the first scan…
@@ -379,4 +455,5 @@ function AttendancePage() {
     </AppShell>
   );
 }
+
 
