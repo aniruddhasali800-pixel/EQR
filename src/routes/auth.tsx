@@ -195,8 +195,65 @@ function AuthPage() {
                   {busy ? <Loader2 className="size-4 animate-spin" /> : null}
                   Sign in
                 </Button>
+
+                <div className="pt-4 border-t space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
+                    Quick Demo Logins (No password required)
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs justify-start"
+                      onClick={() => {
+                        toast.success("Signed in as Demo Teacher");
+                        navigate({ to: "/dashboard", replace: true });
+                      }}
+                    >
+                      👨‍🏫 Teacher
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs justify-start"
+                      onClick={() => {
+                        toast.success("Signed in as Demo HOD");
+                        navigate({ to: "/dashboard", replace: true });
+                      }}
+                    >
+                      🏛️ HOD
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs justify-start"
+                      onClick={() => {
+                        toast.success("Signed in as Demo CR");
+                        navigate({ to: "/dashboard", replace: true });
+                      }}
+                    >
+                      🎓 Class Rep (CR)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs justify-start"
+                      onClick={() => {
+                        toast.success("Signed in as Demo Student");
+                        navigate({ to: "/dashboard", replace: true });
+                      }}
+                    >
+                      👤 Student
+                    </Button>
+                  </div>
+                </div>
               </form>
             </TabsContent>
+
 
             <TabsContent value="signup" className="mt-6">
               <form onSubmit={handleSignUp} className="space-y-4">

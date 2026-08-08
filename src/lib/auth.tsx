@@ -94,19 +94,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       hasRole,
       hasAnyRole: (list: AppRole[]) => list.some((role) => roles.includes(role)),
-      isStaff: ["super_admin", "principal", "hod", "teacher"].some((role) =>
+      isStaff: ["super_admin", "principal", "hod", "teacher", "cr"].some((role) =>
         roles.includes(role as AppRole),
       ),
       refresh: async () => {
         await loadIdentity(session?.user?.id);
       },
       signOut: async () => {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("cerp_demo_role");
+        }
         await supabase.auth.signOut();
         setProfile(null);
         setRoles([]);
       },
     };
   }, [session, profile, roles, loading]);
+
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
