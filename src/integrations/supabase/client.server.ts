@@ -27,17 +27,17 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
     headers.set('apikey', supabaseKey);
     return fetch(input, { ...init, headers });
   };
+}
+
 function createSupabaseAdminClient() {
   const SUPABASE_URL = process.env['SUPABASE_URL'] || process.env['VITE_SUPABASE_URL'] || 'https://placeholder-offline.supabase.co';
   const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'] || process.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || 'placeholder-key';
-
 
   if (!process.env['SUPABASE_URL'] && !process.env['VITE_SUPABASE_URL']) {
     console.warn('[Supabase] Server admin operating in Local Storage fallback mode.');
   }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-
     global: {
       fetch: createSupabaseFetch(SUPABASE_SERVICE_ROLE_KEY),
     },
