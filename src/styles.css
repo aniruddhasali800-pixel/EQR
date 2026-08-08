@@ -1,0 +1,184 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * College ERP design system.
+ * Deep indigo institutional primary, warm amber accent, cool slate surfaces.
+ * All colors are oklch tokens — never hardcode colors in components.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --shadow-card: 0 1px 2px oklch(0.25 0.06 268 / 0.06), 0 8px 24px oklch(0.25 0.06 268 / 0.06);
+  --shadow-raised: 0 12px 40px oklch(0.25 0.06 268 / 0.14);
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.005 265);
+  --foreground: oklch(0.21 0.04 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.04 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.04 265);
+  --primary: oklch(0.42 0.19 269);
+  --primary-foreground: oklch(0.985 0.005 265);
+  --secondary: oklch(0.95 0.014 266);
+  --secondary-foreground: oklch(0.32 0.09 268);
+  --muted: oklch(0.955 0.01 266);
+  --muted-foreground: oklch(0.52 0.035 265);
+  --accent: oklch(0.78 0.15 72);
+  --accent-foreground: oklch(0.26 0.06 60);
+  --success: oklch(0.63 0.14 156);
+  --success-foreground: oklch(0.985 0.005 265);
+  --warning: oklch(0.79 0.15 78);
+  --warning-foreground: oklch(0.26 0.06 60);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.985 0.005 265);
+  --border: oklch(0.9 0.012 266);
+  --input: oklch(0.9 0.012 266);
+  --ring: oklch(0.42 0.19 269);
+  --chart-1: oklch(0.42 0.19 269);
+  --chart-2: oklch(0.63 0.14 156);
+  --chart-3: oklch(0.78 0.15 72);
+  --chart-4: oklch(0.58 0.14 240);
+  --chart-5: oklch(0.6 0.19 20);
+  --sidebar: oklch(0.28 0.09 269);
+  --sidebar-foreground: oklch(0.94 0.01 266);
+  --sidebar-primary: oklch(0.78 0.15 72);
+  --sidebar-primary-foreground: oklch(0.24 0.06 60);
+  --sidebar-accent: oklch(0.34 0.1 269);
+  --sidebar-accent-foreground: oklch(0.98 0.005 265);
+  --sidebar-border: oklch(0.36 0.09 269);
+  --sidebar-ring: oklch(0.78 0.15 72);
+}
+
+.dark {
+  --background: oklch(0.17 0.03 266);
+  --foreground: oklch(0.96 0.008 266);
+  --card: oklch(0.22 0.04 267);
+  --card-foreground: oklch(0.96 0.008 266);
+  --popover: oklch(0.22 0.04 267);
+  --popover-foreground: oklch(0.96 0.008 266);
+  --primary: oklch(0.66 0.16 270);
+  --primary-foreground: oklch(0.16 0.03 266);
+  --secondary: oklch(0.27 0.05 267);
+  --secondary-foreground: oklch(0.96 0.008 266);
+  --muted: oklch(0.27 0.05 267);
+  --muted-foreground: oklch(0.7 0.03 266);
+  --accent: oklch(0.78 0.15 72);
+  --accent-foreground: oklch(0.2 0.05 60);
+  --success: oklch(0.68 0.14 156);
+  --success-foreground: oklch(0.16 0.03 266);
+  --warning: oklch(0.8 0.15 78);
+  --warning-foreground: oklch(0.2 0.05 60);
+  --destructive: oklch(0.65 0.19 25);
+  --destructive-foreground: oklch(0.16 0.03 266);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.66 0.16 270);
+  --chart-1: oklch(0.66 0.16 270);
+  --chart-2: oklch(0.68 0.14 156);
+  --chart-3: oklch(0.78 0.15 72);
+  --chart-4: oklch(0.64 0.14 240);
+  --chart-5: oklch(0.66 0.19 20);
+  --sidebar: oklch(0.21 0.04 267);
+  --sidebar-foreground: oklch(0.94 0.01 266);
+  --sidebar-primary: oklch(0.78 0.15 72);
+  --sidebar-primary-foreground: oklch(0.2 0.05 60);
+  --sidebar-accent: oklch(0.28 0.06 267);
+  --sidebar-accent-foreground: oklch(0.98 0.005 265);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.78 0.15 72);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+@utility surface-card {
+  background-color: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+}
+
+@utility gradient-hero {
+  background-image: linear-gradient(
+    140deg,
+    oklch(0.32 0.12 269) 0%,
+    oklch(0.42 0.19 269) 45%,
+    oklch(0.5 0.16 285) 100%
+  );
+}
+
+@utility text-gradient-accent {
+  background-image: linear-gradient(95deg, var(--color-accent), oklch(0.86 0.12 92));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
