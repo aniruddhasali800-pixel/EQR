@@ -1,412 +1,413 @@
-import { useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, Upload } from "lucide-react";
+import {
+  Users,
+  GraduationCap,
+  MessageSquare,
+  Upload,
+  Send,
+  FileText,
+  Clock,
+  UserCheck,
+  ShieldAlert,
+  Paperclip,
+} from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { displayName, useAuth } from "@/lib/auth";
+import { localStore, type LocalProfile } from "@/lib/local-store";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/lib/auth";
-import { DAY_NAMES, WEEK_DAYS, formatTime, parseTimetableCsv } from "@/lib/timetable";
+  groupChatStore,
+  DEMO_TEACHERS,
+  type GroupChatMessage,
+  type GroupTimetable,
+} from "@/lib/group-chat";
 
 export const Route = createFileRoute("/_authenticated/timetable")({
   head: () => ({
     meta: [
-      { title: "Timetable — Campus ERP" },
+      { title: "Class Group & Timetable — Campus ERP" },
       {
         name: "description",
-        content:
-          "Weekly class timetable by section, subject, teacher and room. Admins can add slots or import a CSV.",
-      },
-      { property: "og:title", content: "Timetable — Campus ERP" },
-      {
-        property: "og:description",
-        content: "Weekly timetable management for sections, subjects, teachers and rooms.",
+        content: "Class group messaging, student rosters, teacher contacts and timetable uploads.",
       },
     ],
   }),
-  component: TimetablePage,
+  component: TimetableGroupPage,
 });
 
-type SlotRow = {
-  id: string;
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-  room: string | null;
-  class_section_id: string;
-  teacher_id: string | null;
-  subjects: { name: string; code: string } | null;
-  class_sections: { name: string; semester: number; section: string } | null;
+const BRANCH_TITLES: Record<string, string> = {
+  computer: "Computer Engineering",
+  mechanical: "Mechanical Engineering",
+  electrical: "Electrical Engineering",
+  civil: "Civil Engineering",
 };
 
-function TimetablePage() {
-  const { hasRole } = useAuth();
-  const isAdmin = hasRole("super_admin");
-  const queryClient = useQueryClient();
-  const [sectionFilter, setSectionFilter] = useState<string>("all");
-  const [addOpen, setAddOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+const YEAR_TITLES: Record<string, string> = {
+  first_year: "1st Year (FE)",
+  second_year: "2nd Year (SE)",
+  third_year: "3rd Year (TE)",
+  final_year: "Final Year (BE)",
+};
 
-  const sections = useQuery({
-    queryKey: ["class-sections"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("class_sections")
-        .select("id, name, semester, section")
-        .order("name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+function TimetableGroupPage() {
+  const { profile, roles, hasAnyRole } = useAuth();
 
-  const subjects = useQuery({
-    queryKey: ["subjects"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("subjects").select("id, name, code").order("name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  // Authority check: Teacher, HOD, and CR have permission to upload timetable
+  const canUploadTimetable = hasAnyRole(["teacher", "hod", "cr", "super_admin", "principal"]);
 
-  const slots = useQuery({
-    queryKey: ["timetable-slots"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("timetable_slots")
-        .select(
-          "id, day_of_week, start_time, end_time, room, class_section_id, teacher_id, subjects(name, code), class_sections(name, semester, section)",
-        )
-        .order("day_of_week")
-        .order("start_time");
-      if (error) throw error;
-      return (data ?? []) as SlotRow[];
-    },
-  });
+  // Group ID based on user department or default mechanical_second_year
+  const branchKey = "mechanical";
+  const yearKey = "second_year";
+  const groupId = `${branchKey}_${yearKey}`;
 
-  const filtered = useMemo(() => {
-    const rows = slots.data ?? [];
-    return sectionFilter === "all"
-      ? rows
-      : rows.filter((slot) => slot.class_section_id === sectionFilter);
-  }, [slots.data, sectionFilter]);
+  const branchTitle = BRANCH_TITLES[branchKey] || "Mechanical Engineering";
+  const yearTitle = YEAR_TITLES[yearKey] || "2nd Year (SE)";
 
-  const createSlot = useMutation({
-    mutationFn: async (form: FormData) => {
-      const classSectionId = String(form.get("class_section_id") ?? "");
-      const subjectId = String(form.get("subject_id") ?? "");
-      const dayOfWeek = Number(form.get("day_of_week"));
-      const startTime = String(form.get("start_time") ?? "");
-      const endTime = String(form.get("end_time") ?? "");
-      if (!classSectionId || !startTime || !endTime) throw new Error("Fill in all required fields");
-      if (endTime <= startTime) throw new Error("End time must be after the start time");
+  // Local state for chat & roster
+  const [messages, setMessages] = useState<GroupChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [students, setStudents] = useState<LocalProfile[]>([]);
+  const [timetableRecord, setTimetableRecord] = useState<GroupTimetable | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [timetablePreview, setTimetablePreview] = useState<string | null>(null);
 
-      const { error } = await supabase.from("timetable_slots").insert({
-        class_section_id: classSectionId,
-        subject_id: subjectId || null,
-        day_of_week: dayOfWeek,
-        start_time: startTime,
-        end_time: endTime,
-        room: String(form.get("room") ?? "").trim() || null,
-      });
-      if (error) throw error;
-    },
-    onSuccess: async () => {
-      toast.success("Timetable slot added");
-      setAddOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["timetable-slots"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+  useEffect(() => {
+    // Load group messages & timetable
+    setMessages(groupChatStore.getMessages(groupId));
+    setTimetableRecord(groupChatStore.getTimetable(groupId));
 
-  const deleteSlot = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("timetable_slots").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: async () => {
-      toast.success("Slot removed");
-      await queryClient.invalidateQueries({ queryKey: ["timetable-slots"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+    // Load student list (privacy: names only shown)
+    const allProfiles = localStore.getProfiles();
+    const studentList = allProfiles.filter((p) => p.role === "student" || p.role === "cr");
+    setStudents(studentList.length > 0 ? studentList : [
+      { id: "s1", first_name: "Rahul", last_name: "Sharma", email: "rahul@campus.edu", role: "student" },
+      { id: "s2", first_name: "Priya", last_name: "Patel", email: "priya@campus.edu", role: "student" },
+      { id: "s3", first_name: "Aman", last_name: "Gupta", email: "aman@campus.edu", role: "cr" },
+      { id: "s4", first_name: "Neha", last_name: "Singh", email: "neha@campus.edu", role: "student" },
+    ]);
+  }, [groupId]);
 
-  const importCsv = useMutation({
-    mutationFn: async (file: File) => {
-      const { rows, errors } = parseTimetableCsv(await file.text());
-      if (rows.length === 0) throw new Error(errors[0] ?? "Nothing to import");
+  // Send group message
+  function handleSendMessage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newMessage.trim()) return;
 
-      const sectionMap = new Map((sections.data ?? []).map((row) => [row.name.toLowerCase(), row.id]));
-      const subjectMap = new Map(
-        (subjects.data ?? []).map((row) => [row.code.toLowerCase(), row.id]),
-      );
+    const senderName = displayName(profile);
+    const senderRole = roles[0] ? roles[0].toUpperCase() : "STUDENT";
 
-      const payload = rows
-        .map((row) => {
-          const sectionId = sectionMap.get(row.section_name.toLowerCase());
-          if (!sectionId) return null;
-          return {
-            class_section_id: sectionId,
-            subject_id: row.subject_code
-              ? (subjectMap.get(row.subject_code.toLowerCase()) ?? null)
-              : null,
-            day_of_week: row.day_of_week,
-            start_time: row.start_time,
-            end_time: row.end_time,
-            room: row.room,
-          };
-        })
-        .filter((row): row is NonNullable<typeof row> => row !== null);
+    const msg = groupChatStore.sendMessage(
+      groupId,
+      profile?.id || "user_1",
+      senderName,
+      senderRole,
+      newMessage,
+    );
 
-      if (payload.length === 0) throw new Error("No rows matched an existing class section");
-      const { error } = await supabase.from("timetable_slots").insert(payload);
-      if (error) throw error;
-      return { imported: payload.length, skipped: rows.length - payload.length, errors };
-    },
-    onSuccess: async (result) => {
-      toast.success(
-        `Imported ${result.imported} slot(s)${result.skipped ? `, skipped ${result.skipped}` : ""}`,
-      );
-      setImportOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["timetable-slots"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
+    setMessages((prev) => [...prev, msg]);
+    setNewMessage("");
+    toast.success("Message posted to class group");
+  }
+
+  // Handle Timetable File Upload (Teacher / HOD / CR authority)
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setTimetablePreview(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleSaveTimetableUpload() {
+    if (!timetablePreview) {
+      toast.error("Please select a timetable image or PDF first");
+      return;
+    }
+
+    const uploaderName = displayName(profile);
+    const uploaderRole = roles[0] ? roles[0].toUpperCase() : "TEACHER";
+
+    const saved = groupChatStore.saveTimetable(groupId, uploaderName, uploaderRole, timetablePreview);
+    setTimetableRecord(saved);
+    setUploadOpen(false);
+    toast.success("Class timetable uploaded successfully!");
+  }
 
   return (
     <AppShell
-      title="Timetable"
-      description="Weekly schedule by section, subject, teacher and room"
+      title="Class Group & Timetable"
+      description={`${branchTitle} · ${yearTitle}`}
       actions={
-        isAdmin ? (
-          <div className="flex gap-2">
-            <Dialog open={importOpen} onOpenChange={setImportOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Upload className="size-4" />
-                  <span className="hidden sm:inline">Import CSV</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Import timetable</DialogTitle>
-                  <DialogDescription>
-                    CSV header: section,day,start,end,room,subject_code,teacher_email. Times use
-                    24-hour HH:MM.
-                  </DialogDescription>
-                </DialogHeader>
-                <Input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) importCsv.mutate(file);
-                  }}
-                />
-              </DialogContent>
-            </Dialog>
+        canUploadTimetable ? (
+          <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="gap-2 bg-primary">
+                <Upload className="size-4" />
+                <span>Upload Timetable</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Upload Class Timetable</DialogTitle>
+                <DialogDescription>
+                  Authority: Only Teachers, HODs & CRs can update the group timetable.
+                </DialogDescription>
+              </DialogHeader>
 
-            <Dialog open={addOpen} onOpenChange={setAddOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm">
-                  <Plus className="size-4" />
-                  <span className="hidden sm:inline">Add slot</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    createSlot.mutate(new FormData(event.currentTarget));
-                  }}
-                >
-                  <DialogHeader>
-                    <DialogTitle>Add timetable slot</DialogTitle>
-                    <DialogDescription>
-                      Lecture sessions and QR attendance are generated from these slots.
-                    </DialogDescription>
-                  </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="tt-file">Select Timetable Image / File</Label>
+                  <Input
+                    id="tt-file"
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={handleFileUpload}
+                  />
+                </div>
 
-                  <div className="mt-5 space-y-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="class_section_id">Class section</Label>
-                      <Select name="class_section_id" required>
-                        <SelectTrigger id="class_section_id">
-                          <SelectValue placeholder="Select a section" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(sections.data ?? []).map((section) => (
-                            <SelectItem key={section.id} value={section.id}>
-                              {section.name} · Sem {section.semester}
-                              {section.section}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="subject_id">Subject</Label>
-                      <Select name="subject_id">
-                        <SelectTrigger id="subject_id">
-                          <SelectValue placeholder="Select a subject" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(subjects.data ?? []).map((subject) => (
-                            <SelectItem key={subject.id} value={subject.id}>
-                              {subject.name} ({subject.code})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="day_of_week">Day</Label>
-                      <Select name="day_of_week" defaultValue="1">
-                        <SelectTrigger id="day_of_week">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {WEEK_DAYS.map((day) => (
-                            <SelectItem key={day} value={String(day)}>
-                              {DAY_NAMES[day]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="start_time">Start</Label>
-                        <Input id="start_time" name="start_time" type="time" required />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="end_time">End</Label>
-                        <Input id="end_time" name="end_time" type="time" required />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="room">Room</Label>
-                      <Input id="room" name="room" maxLength={40} placeholder="A-204" />
-                    </div>
+                {timetablePreview ? (
+                  <div className="rounded-lg border p-2 bg-muted/40">
+                    <p className="text-xs font-semibold mb-2 text-emerald-600">File Preview Loaded</p>
+                    <img src={timetablePreview} alt="Timetable preview" className="max-h-48 rounded object-cover w-full" />
                   </div>
+                ) : null}
 
-                  <DialogFooter className="mt-6">
-                    <Button type="submit" disabled={createSlot.isPending}>
-                      Add slot
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
-        ) : null
+                <Button className="w-full" onClick={handleSaveTimetableUpload}>
+                  Publish Timetable to Class
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : (
+          <Badge variant="outline" className="gap-1.5 text-xs">
+            <ShieldAlert className="size-3.5 text-muted-foreground" />
+            Timetable Upload: Teacher/HOD/CR Only
+          </Badge>
+        )
       }
     >
       <div className="space-y-6">
-        <div className="max-w-xs">
-          <Label htmlFor="section-filter" className="text-xs text-muted-foreground">
-            Filter by section
-          </Label>
-          <Select value={sectionFilter} onValueChange={setSectionFilter}>
-            <SelectTrigger id="section-filter" className="mt-1.5">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sections</SelectItem>
-              {(sections.data ?? []).map((section) => (
-                <SelectItem key={section.id} value={section.id}>
-                  {section.name} · Sem {section.semester}
-                  {section.section}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Class Group Banner */}
+        <div className="surface-card p-6 rounded-2xl border bg-gradient-to-r from-primary/10 via-background to-background flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Badge variant="default" className="text-xs">
+                Active Group
+              </Badge>
+              <span className="text-xs text-muted-foreground font-mono">ID: {groupId}</span>
+            </div>
+            <h2 className="text-xl font-bold font-display">{branchTitle}</h2>
+            <p className="text-sm text-muted-foreground">
+              {yearTitle} · Enrolled Class Group & Live Discussions
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="text-center px-3 py-1.5 rounded-xl bg-card border">
+              <p className="text-lg font-bold text-primary">{students.length}</p>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Total Students</p>
+            </div>
+            <div className="text-center px-3 py-1.5 rounded-xl bg-card border">
+              <p className="text-lg font-bold text-emerald-600">{DEMO_TEACHERS.length}</p>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Teachers</p>
+            </div>
+          </div>
         </div>
 
-        {slots.isLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="surface-card p-10 text-center text-sm text-muted-foreground">
-            No timetable slots yet.
-            {isAdmin ? " Add one or import a CSV to get started." : ""}
-          </div>
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {WEEK_DAYS.map((day) => {
-              const daySlots = filtered.filter((slot) => slot.day_of_week === day);
-              if (daySlots.length === 0) return null;
-              return (
-                <section key={day} className="surface-card p-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-display text-sm font-semibold">{DAY_NAMES[day]}</h2>
-                    <Badge variant="outline">{daySlots.length}</Badge>
+        {/* Tabs for Timetable, Group Chat, Students & Teachers */}
+        <Tabs defaultValue="timetable" className="w-full">
+          <TabsList className="grid w-full grid-cols-4 max-w-xl">
+            <TabsTrigger value="timetable" className="gap-1.5">
+              <FileText className="size-4" />
+              <span>Timetable</span>
+            </TabsTrigger>
+            <TabsTrigger value="chat" className="gap-1.5">
+              <MessageSquare className="size-4" />
+              <span>Group Chat</span>
+            </TabsTrigger>
+            <TabsTrigger value="students" className="gap-1.5">
+              <Users className="size-4" />
+              <span>Students ({students.length})</span>
+            </TabsTrigger>
+            <TabsTrigger value="teachers" className="gap-1.5">
+              <GraduationCap className="size-4" />
+              <span>Teachers</span>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* TAB 1: Timetable Display */}
+          <TabsContent value="timetable" className="mt-4 space-y-4">
+            {timetableRecord?.file_url ? (
+              <div className="surface-card p-6 rounded-2xl border space-y-4">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div>
+                    <h3 className="font-semibold text-base">Class Schedule</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Uploaded by {timetableRecord.uploaded_by_name} ({timetableRecord.uploaded_by_role}) on{" "}
+                      {new Date(timetableRecord.updated_at).toLocaleDateString()}
+                    </p>
                   </div>
-                  <ul className="mt-3 space-y-2">
-                    {daySlots.map((slot) => (
-                      <li
-                        key={slot.id}
-                        className="flex items-start gap-3 rounded-lg bg-muted/60 p-3 text-sm"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium">
-                            {slot.subjects?.name ?? "Unassigned subject"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
-                            {slot.room ? ` · ${slot.room}` : ""}
-                          </p>
-                          {slot.class_sections ? (
-                            <p className="text-xs text-muted-foreground">
-                              {slot.class_sections.name} · Sem {slot.class_sections.semester}
-                              {slot.class_sections.section}
-                            </p>
-                          ) : null}
-                        </div>
-                        {isAdmin ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Delete slot"
-                            onClick={() => deleteSlot.mutate(slot.id)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
-          </div>
-        )}
+                  <Badge variant="secondary">Official Schedule</Badge>
+                </div>
+                <img
+                  src={timetableRecord.file_url}
+                  alt="Class Timetable"
+                  className="w-full max-h-[500px] object-contain rounded-xl border"
+                />
+              </div>
+            ) : (
+              <div className="surface-card p-8 rounded-2xl border text-center space-y-3">
+                <FileText className="size-10 text-muted-foreground mx-auto" />
+                <h3 className="font-semibold text-base">No Timetable Uploaded Yet</h3>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  {canUploadTimetable
+                    ? "Click the 'Upload Timetable' button above to publish the class schedule image or file."
+                    : "Your class teacher or CR will upload the schedule here shortly."}
+                </p>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* TAB 2: Class Group Chat */}
+          <TabsContent value="chat" className="mt-4 space-y-4">
+            <div className="surface-card p-4 rounded-2xl border flex flex-col h-[480px]">
+              <div className="border-b pb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="size-4 text-primary" />
+                  <h3 className="font-semibold text-sm">{branchTitle} Class Discussion</h3>
+                </div>
+                <span className="text-xs text-emerald-600 font-medium">● Group Live</span>
+              </div>
+
+              {/* Messages Container */}
+              <div className="flex-1 overflow-y-auto py-4 space-y-3 px-1">
+                {messages.length === 0 ? (
+                  <p className="text-center text-xs text-muted-foreground py-10">
+                    No messages yet. Be the first to start the group discussion!
+                  </p>
+                ) : (
+                  messages.map((m) => (
+                    <div key={m.id} className="flex flex-col space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold">{m.sender_name}</span>
+                        <Badge variant="outline" className="text-[10px] py-0 px-1">
+                          {m.sender_role}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className="bg-muted/60 p-3 rounded-xl rounded-tl-none text-xs max-w-lg">
+                        {m.content}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Message Input Box */}
+              <form onSubmit={handleSendMessage} className="flex gap-2 pt-2 border-t">
+                <Input
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Type a message to the class group..."
+                  className="flex-1"
+                />
+                <Button type="submit" size="icon" className="shrink-0">
+                  <Send className="size-4" />
+                </Button>
+              </form>
+            </div>
+          </TabsContent>
+
+          {/* TAB 3: Enrolled Students List (Privacy: Names Only) */}
+          <TabsContent value="students" className="mt-4 space-y-4">
+            <div className="surface-card p-6 rounded-2xl border space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div>
+                  <h3 className="font-semibold text-base">Class Roster</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Names of all enrolled students in {branchTitle}
+                  </p>
+                </div>
+                <Badge variant="secondary">Total Students: {students.length}</Badge>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {students.map((st) => (
+                  <div key={st.id} className="flex items-center gap-3 p-3 rounded-xl border bg-card">
+                    <Avatar className="size-9">
+                      <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                        {st.first_name[0]}{st.last_name[0]}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {st.first_name} {st.last_name}
+                      </p>
+                      <span className="text-[10px] text-muted-foreground uppercase font-semibold">
+                        {st.role === "cr" ? "⭐ Class Rep (CR)" : "Student"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* TAB 4: Faculty / Teachers Details */}
+          <TabsContent value="teachers" className="mt-4 space-y-4">
+            <div className="surface-card p-6 rounded-2xl border space-y-4">
+              <div className="border-b pb-3">
+                <h3 className="font-semibold text-base">Assigned Faculty</h3>
+                <p className="text-xs text-muted-foreground">
+                  Teachers and subject leads for {branchTitle}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {DEMO_TEACHERS.map((t) => (
+                  <div key={t.id} className="p-4 rounded-xl border bg-card space-y-2">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="size-10">
+                        <AvatarFallback className="bg-emerald-100 text-emerald-700 text-sm font-bold">
+                          {t.name.split(" ")[1]?.[0] || "T"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h4 className="font-semibold text-sm">{t.name}</h4>
+                        <p className="text-xs text-primary font-medium">{t.subject}</p>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t text-xs text-muted-foreground flex items-center justify-between">
+                      <span>Dept: {t.department}</span>
+                      <span className="font-mono text-[11px]">{t.email}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppShell>
   );
