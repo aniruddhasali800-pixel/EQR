@@ -106,9 +106,10 @@ function Dashboard() {
 
   return (
     <AppShell
-      title={`Welcome, ${displayName(profile).split(" ")[0]}`}
-      description={`${DAY_NAMES[todayDow]} · ${roles.map((role) => ROLE_LABELS[role]).join(", ") || "No role assigned"}`}
+      title={`Welcome, ${displayName(profile).split(" ")[0] || "User"}`}
+      description={`${DAY_NAMES[todayDow]} · ${(roles || []).map((role) => ROLE_LABELS[role] || role).join(", ") || "No role assigned"}`}
     >
+
       <div className="space-y-6">
         {/* Admin & Teacher Branch Selector Bar */}
         <div className="surface-card p-4 rounded-2xl border bg-gradient-to-r from-card via-card to-primary/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -226,7 +227,7 @@ function Dashboard() {
                   {studentQrToken}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {displayName(profile)} · Roll {profile?.id.slice(0, 8)}
+                  {displayName(profile)} · Roll {profile?.id ? profile.id.slice(0, 8) : "N/A"}
                 </p>
               </div>
             ) : null}
