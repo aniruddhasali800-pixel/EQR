@@ -123,18 +123,10 @@ function AuthPage() {
     const firstName = String(form.get("firstName") || "");
     const lastName = String(form.get("lastName") || "");
     const email = String(form.get("email") || "");
-    const phone = String(form.get("phone") || "");
     const password = String(form.get("password") || "");
 
     if (!firstName || !lastName || !email || !password) {
       toast.error("Please fill in all required fields");
-      return;
-    }
-
-    // Validate 10-digit phone number locally if provided
-    const cleanPhone = phone.replace(/\D/g, "");
-    if (phone && cleanPhone.length !== 10) {
-      toast.error("Please enter a valid 10-digit mobile number");
       return;
     }
 
@@ -143,7 +135,7 @@ function AuthPage() {
       firstName,
       lastName,
       email,
-      cleanPhone ? `+91${cleanPhone}` : null, // Store phone locally ONLY
+      null, // No phone number required during auth
       password,
       selectedRole,
     );
@@ -155,9 +147,10 @@ function AuthPage() {
     }
 
     await refresh();
-    toast.success(`Account verified! Welcome, ${result.user.first_name}!`);
+    toast.success(`Account created! Welcome, ${result.user.first_name}!`);
     navigate({ to: "/dashboard", replace: true });
   }
+
 
   function handleDemoLogin(demoRole: AppRole, label: string) {
     localAuth.loginAsDemo(demoRole);
@@ -293,17 +286,10 @@ function AuthPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="phone">Mobile number (10 Digits)</Label>
-                    <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">Auto Verified</span>
-                  </div>
-                  <Input id="phone" name="phone" type="tel" placeholder="9876543210" maxLength={10} />
-                </div>
-
-                <div className="space-y-1">
                   <Label htmlFor="signup-password">Password</Label>
                   <Input id="signup-password" name="password" type="password" minLength={6} required />
                 </div>
+
 
                 <Button type="submit" className="w-full h-11" disabled={busy}>
                   {busy ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
