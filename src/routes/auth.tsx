@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { z } from "zod";
-import { toast } from "sonner";
-import { GraduationCap, Loader2 } from "lucide-react";
+import { SignIn, SignUp, useUser } from "@clerk/clerk-react";
+import { GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -16,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { localAuth } from "@/lib/local-auth";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -24,7 +23,7 @@ export const Route = createFileRoute("/auth")({
       {
         name: "description",
         content:
-          "Sign in or create your Campus ERP account to access attendance, timetables and role dashboards.",
+          "Sign in with Google or email via Clerk to access attendance, timetables and role dashboards.",
       },
       { property: "og:title", content: "Sign in — Campus ERP" },
       {
@@ -36,91 +35,37 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-const signInSchema = z.object({
-  email: z.string().trim().email("Enter a valid email").max(255),
-  password: z.string().min(6, "Password must be at least 6 characters").max(128),
-});
-
-const signUpSchema = signInSchema.extend({
-  firstName: z.string().trim().min(1, "First name is required").max(60),
-  lastName: z.string().trim().min(1, "Last name is required").max(60),
-  phone: z.string().trim().max(20).optional(),
-});
-
-const SIGNUP_ROLES: { value: AppRole; label: string }[] = [
+// User role options: Only Teacher and Student (CR, HOD, Admin removed per user instruction)
+const ALLOWED_ROLES: { value: AppRole; label: string }[] = [
   { value: "student", label: "Student" },
   { value: "teacher", label: "Teacher" },
-  { value: "cr", label: "Class Representative (CR)" },
-  { value: "hod", label: "HOD" },
-  { value: "super_admin", label: "Admin" },
 ];
 
 function AuthPage() {
   const navigate = useNavigate();
   const { session, loading, refresh } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [role, setRole] = useState<AppRole>("student");
+  const { isLoaded, isSignedIn, user } = useUser();
+  const [selectedRole, setSelectedRole] = useState<AppRole>("student");
 
-  // Auto-redirect if already logged in (persistent session detected)
+  // Auto-redirect if already logged in via Clerk or Local Auth
   useEffect(() => {
-    if (!loading && session) navigate({ to: "/dashboard", replace: true });
-  }, [loading, session, navigate]);
-
-  async function handleSignIn(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const parsed = signInSchema.safeParse({
-      email: form.get("email"),
-      password: form.get("password"),
-    });
-    if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Check your details");
-      return;
+    if (isSignedIn && user) {
+      // Sync Clerk user with localAuth session
+      localAuth.signUp(
+        user.firstName || "User",
+        user.lastName || "",
+        user.primaryEmailAddress?.emailAddress || "user@campus.edu",
+        user.primaryPhoneNumber?.phoneNumber || null,
+        "clerk_google_auth",
+        selectedRole,
+      ).then(() => {
+        refresh();
+        navigate({ to: "/dashboard", replace: true });
+      });
+    } else if (!loading && session) {
+      navigate({ to: "/dashboard", replace: true });
     }
-    setBusy(true);
-    const result = await localAuth.signIn(parsed.data.email, parsed.data.password);
-    setBusy(false);
-    if ("error" in result) {
-      toast.error(result.error);
-      return;
-    }
-    await refresh();
-    toast.success(`Welcome back, ${result.user.first_name}!`);
-    navigate({ to: "/dashboard", replace: true });
-  }
-
-  async function handleSignUp(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const parsed = signUpSchema.safeParse({
-      email: form.get("email"),
-      password: form.get("password"),
-      firstName: form.get("firstName"),
-      lastName: form.get("lastName"),
-      phone: form.get("phone") || undefined,
-    });
-    if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Check your details");
-      return;
-    }
-    setBusy(true);
-    const result = await localAuth.signUp(
-      parsed.data.firstName,
-      parsed.data.lastName,
-      parsed.data.email,
-      parsed.data.phone ?? null,
-      parsed.data.password,
-      role,
-    );
-    setBusy(false);
-    if ("error" in result) {
-      toast.error(result.error);
-      return;
-    }
-    await refresh();
-    toast.success(`Account created! Welcome, ${result.user.first_name}!`);
-    navigate({ to: "/dashboard", replace: true });
-  }
+  }, [isLoaded, isSignedIn, user, loading, session, navigate, selectedRole, refresh]);
 
   function handleDemoLogin(demoRole: AppRole, label: string) {
     localAuth.loginAsDemo(demoRole);
@@ -143,171 +88,105 @@ function AuthPage() {
             One account for attendance, timetables and reports.
           </h2>
           <p className="mt-4 max-w-sm text-primary-foreground/75">
-            Your role decides what you see — students, teachers, CRs, HODs, principals and admins all
-            work in the same app.
+            Sign in with Google or Email. Select your role as Student or Teacher to access your campus dashboard.
           </p>
         </div>
         <p className="text-xs text-primary-foreground/60">
-          All data saved locally on your device. No external server required.
+          Powered by Clerk Authentication & Local PWA Storage.
         </p>
       </div>
 
-      <div className="flex items-center justify-center px-5 py-12">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 lg:hidden">
-            <div className="flex items-center gap-2">
+      <div className="flex items-center justify-center px-5 py-8">
+        <div className="w-full max-w-md space-y-6">
+          <div className="mb-4 lg:hidden text-center">
+            <div className="flex items-center justify-center gap-2">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <GraduationCap className="size-5" />
               </div>
-              <span className="font-display font-semibold">Campus ERP</span>
+              <span className="font-display text-xl font-bold">Campus ERP</span>
             </div>
           </div>
 
-          <Tabs defaultValue="signin">
+          {/* Role Selection Header */}
+          <div className="surface-card p-4 rounded-xl border space-y-2">
+            <Label htmlFor="role-select" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Select Your Role
+            </Label>
+            <Select value={selectedRole} onValueChange={(val) => setSelectedRole(val as AppRole)}>
+              <SelectTrigger id="role-select" className="w-full">
+                <SelectValue placeholder="Select your role" />
+              </SelectTrigger>
+              <SelectContent>
+                {ALLOWED_ROLES.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Tabs defaultValue="clerk-signin" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign in</TabsTrigger>
-              <TabsTrigger value="signup">Create account</TabsTrigger>
+              <TabsTrigger value="clerk-signin">Sign In</TabsTrigger>
+              <TabsTrigger value="clerk-signup">Create Account</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="signin" className="mt-6">
-              <form onSubmit={handleSignIn} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="signin-email">Email</Label>
-                  <Input
-                    id="signin-email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    maxLength={255}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="signin-password">Password</Label>
-                  <Input
-                    id="signin-password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                    maxLength={128}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={busy}>
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Sign in
-                </Button>
-
-                <div className="pt-4 border-t space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-                    Quick Demo Logins (No password required)
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs justify-start"
-                      onClick={() => handleDemoLogin("teacher", "Demo Teacher")}
-                    >
-                      👨‍🏫 Teacher
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs justify-start"
-                      onClick={() => handleDemoLogin("hod", "Demo HOD")}
-                    >
-                      🏛️ HOD
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs justify-start"
-                      onClick={() => handleDemoLogin("cr", "Demo CR")}
-                    >
-                      🎓 Class Rep (CR)
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-xs justify-start"
-                      onClick={() => handleDemoLogin("student", "Demo Student")}
-                    >
-                      👤 Student
-                    </Button>
-                  </div>
-                </div>
-              </form>
+            <TabsContent value="clerk-signin" className="mt-6 flex justify-center">
+              <SignIn
+                routing="virtual"
+                signUpUrl="/auth"
+                fallbackRedirectUrl="/dashboard"
+                appearance={{
+                  elements: {
+                    rootBox: "w-full flex justify-center",
+                    card: "shadow-none border border-border w-full",
+                  },
+                }}
+              />
             </TabsContent>
 
-            <TabsContent value="signup" className="mt-6">
-              <form onSubmit={handleSignUp} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="firstName">First name</Label>
-                    <Input id="firstName" name="firstName" required maxLength={60} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="lastName">Last name</Label>
-                    <Input id="lastName" name="lastName" required maxLength={60} />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    maxLength={255}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="phone">Phone number</Label>
-                  <Input id="phone" name="phone" type="tel" maxLength={20} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="role">I am a</Label>
-                  <Select value={role} onValueChange={(value) => setRole(value as AppRole)}>
-                    <SelectTrigger id="role">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SIGNUP_ROLES.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input
-                    id="signup-password"
-                    name="password"
-                    type="password"
-                    autoComplete="new-password"
-                    required
-                    minLength={6}
-                    maxLength={128}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={busy}>
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Create account
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  All data is saved locally on your device. No email verification required.
-                </p>
-              </form>
+            <TabsContent value="clerk-signup" className="mt-6 flex justify-center">
+              <SignUp
+                routing="virtual"
+                signInUrl="/auth"
+                fallbackRedirectUrl="/dashboard"
+                appearance={{
+                  elements: {
+                    rootBox: "w-full flex justify-center",
+                    card: "shadow-none border border-border w-full",
+                  },
+                }}
+              />
             </TabsContent>
           </Tabs>
+
+          {/* Quick Demo Login Fallback */}
+          <div className="pt-4 border-t space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
+              Instant Demo Access
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs justify-center gap-1.5"
+                onClick={() => handleDemoLogin("teacher", "Demo Teacher")}
+              >
+                👨‍🏫 Demo Teacher
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs justify-center gap-1.5"
+                onClick={() => handleDemoLogin("student", "Demo Student")}
+              >
+                👤 Demo Student
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

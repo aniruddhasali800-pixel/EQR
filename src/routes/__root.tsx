@@ -15,6 +15,12 @@ import { AuthProvider } from "@/lib/auth";
 import { registerServiceWorker } from "@/lib/pwa";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import { Toaster } from "@/components/ui/sonner";
+import { ClerkProvider } from "@clerk/clerk-react";
+
+const CLERK_PUBLISHABLE_KEY =
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
+  "pk_test_dG91Y2hlZC1iYXQtNzAuY2xlcmsuYWNjb3VudHMuZGV2JA";
+
 
 function NotFoundComponent() {
   return (
@@ -142,13 +148,17 @@ function RootComponent() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-        <InstallPrompt />
-        <Toaster />
-      </AuthProvider>
-    </QueryClientProvider>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+          <Outlet />
+          <InstallPrompt />
+          <Toaster />
+        </AuthProvider>
+      </QueryClientProvider>
+    </ClerkProvider>
   );
 }
+
+
