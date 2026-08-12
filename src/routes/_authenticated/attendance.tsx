@@ -180,7 +180,7 @@ function AttendancePage() {
       const profiles = localStore.getProfiles();
       const details = localStore.getStudentDetails();
 
-      return localRecords.map((r) => {
+      const allRows = localRecords.map((r) => {
         const p = profiles.find((prof) => prof.id === r.student_id) || {
           first_name: "Rahul",
           last_name: "Sharma",
@@ -200,8 +200,16 @@ function AttendancePage() {
           phone: p.phone ?? "—",
         };
       });
+
+      // Data Isolation: Students only see their own record
+      if (!isStaff && user?.id) {
+        return allRows.filter((r) => r.id === user.id || r.email === user.email);
+      }
+
+      return allRows;
     },
   });
+
 
   async function startSession() {
     const targetSection = sectionId || sections.data?.[0]?.id || "sec_cs_4a";
