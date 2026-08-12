@@ -14,10 +14,13 @@ export type LocalUser = {
   last_name: string;
   email: string;
   phone: string | null;
+  address?: string | null;
+  photo_url?: string | null;
   role: AppRole;
   password_hash: string;
   created_at: string;
 };
+
 
 export type LocalSession = {
   user_id: string;
@@ -231,6 +234,20 @@ export const localAuth = {
     return true;
   },
 
+  /** Update user profile (name, phone, address, photo_url) */
+  updateUserProfile(
+    userId: string,
+    updates: Partial<Pick<LocalUser, "first_name" | "last_name" | "phone" | "address" | "photo_url">>,
+  ): LocalUser | null {
+    const users = this.getUsers();
+    const index = users.findIndex((u) => u.id === userId);
+    if (index === -1) return null;
+
+    users[index] = { ...users[index]!, ...updates };
+    setStored(KEYS.USERS, users);
+    return users[index]!;
+  },
+
   /** Admin: delete a user account. */
   deleteUser(userId: string): boolean {
     const users = this.getUsers().filter((u) => u.id !== userId);
@@ -244,3 +261,4 @@ export const localAuth = {
     return true;
   },
 };
+

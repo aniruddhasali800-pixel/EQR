@@ -9,9 +9,11 @@ import {
   Menu,
   GraduationCap,
   QrCode,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ROLE_LABELS, displayName, useAuth, type AppRole } from "@/lib/auth";
@@ -40,6 +42,7 @@ const NAV: NavItem[] = [
     roles: ["super_admin", "principal", "hod", "teacher"],
   },
   { to: "/admin", label: "Administration", icon: Building2, roles: ["super_admin"] },
+  { to: "/settings", label: "Profile & Settings", icon: User },
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: (() => void) | undefined }) {
@@ -92,10 +95,13 @@ function SidebarBody({ onNavigate }: { onNavigate?: (() => void) | undefined }) 
       <div className="mt-auto space-y-3 border-t border-sidebar-border pt-4">
         <div className="flex items-center gap-3 px-1">
           <Avatar className="size-9">
+            <AvatarImage src={profile?.photo_url || ""} />
             <AvatarFallback className="bg-sidebar-accent text-xs text-sidebar-accent-foreground">
               {displayName(profile).slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
+
+
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-sidebar-foreground">
               {displayName(profile)}

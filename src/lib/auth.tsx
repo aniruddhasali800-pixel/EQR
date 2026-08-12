@@ -20,6 +20,7 @@ export type Profile = {
   email: string;
   phone: string | null;
   photo_url: string | null;
+  address?: string | null;
   department_id: string | null;
 };
 
@@ -52,10 +53,12 @@ function userToProfile(u: LocalUser): Profile {
     last_name: u.last_name,
     email: u.email,
     phone: u.phone,
-    photo_url: null,
+    photo_url: u.photo_url ?? null,
+    address: u.address ?? null,
     department_id: null,
   };
 }
+
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<LocalSessionCompat | null>(null);
