@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useSignIn, useSignUp, useUser } from "@clerk/clerk-react";
-import { GraduationCap, Loader2 } from "lucide-react";
+import { GraduationCap, Loader2, Shield, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,13 +23,7 @@ export const Route = createFileRoute("/auth")({
       { title: "Sign in — Campus ERP" },
       {
         name: "description",
-        content:
-          "Sign in with Google or email to access attendance, timetables and role dashboards.",
-      },
-      { property: "og:title", content: "Sign in — Campus ERP" },
-      {
-        property: "og:description",
-        content: "Access your Campus ERP dashboard for attendance, timetables and reports.",
+        content: "Sign in with Google or email to access attendance, timetables and role dashboards.",
       },
     ],
   }),
@@ -53,7 +47,6 @@ function AuthPage() {
   const [selectedYear, setSelectedYear] = useState("second_year");
   const [busy, setBusy] = useState(false);
 
-
   // Auto-redirect if logged in via Clerk or Local Auth
   useEffect(() => {
     if (isSignedIn && clerkUser) {
@@ -62,38 +55,32 @@ function AuthPage() {
           clerkUser.firstName || "User",
           clerkUser.lastName || "",
           clerkUser.primaryEmailAddress?.emailAddress || "user@campus.edu",
-          null, // Do NOT send phone to Clerk — keeps it 100% local to bypass SMS block!
+          null,
           "clerk_google_auth",
           selectedRole,
         )
-        .then(() => {
-          refresh();
-          navigate({ to: "/dashboard", replace: true });
+        .then(() => refresh())
+        .then(() => navigate({ to: "/dashboard", replace: true }))
+        .catch(() => {
+          // Already exists — just sign in
+          localAuth
+            .signIn(
+              clerkUser.primaryEmailAddress?.emailAddress || "user@campus.edu",
+              "clerk_google_auth",
+            )
+            .then(() => refresh())
+            .then(() => navigate({ to: "/dashboard", replace: true }));
         });
-    } else if (!loading && session) {
+    }
+  }, [isSignedIn, clerkUser]);
+
+  useEffect(() => {
+    if (!loading && session) {
       navigate({ to: "/dashboard", replace: true });
     }
-  }, [isSignedIn, clerkUser, loading, session, navigate, selectedRole, refresh]);
+  }, [loading, session]);
 
-  // Google OAuth button handler
-  async function handleGoogleSignIn() {
-    if (!signInLoaded || !signIn) {
-      toast.error("Authentication engine loading...");
-      return;
-    }
-    try {
-      await signIn.authenticateWithRedirect({
-        strategy: "oauth_google",
-        redirectUrl: `${window.location.origin}/auth`,
-        redirectUrlComplete: `${window.location.origin}/dashboard`,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Google sign in failed";
-      toast.error(msg);
-    }
-  }
-
-  // Local Direct Email/Pass Sign In
+  // Email/Password Sign In
   async function handleLocalSignIn(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -119,7 +106,7 @@ function AuthPage() {
     navigate({ to: "/dashboard", replace: true });
   }
 
-  // Local Direct Registration (Accepts any 10-digit phone number locally without sending SMS to Clerk!)
+  // Local Direct Registration
   async function handleLocalSignUp(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -138,7 +125,7 @@ function AuthPage() {
       firstName,
       lastName,
       email,
-      null, // No phone number required during auth
+      null,
       password,
       selectedRole,
     );
@@ -154,7 +141,6 @@ function AuthPage() {
     navigate({ to: "/dashboard", replace: true });
   }
 
-
   function handleDemoLogin(demoRole: AppRole, label: string) {
     localAuth.loginAsDemo(demoRole);
     refresh();
@@ -164,6 +150,7 @@ function AuthPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
+      {/* Left Panel — Branding */}
       <div className="gradient-hero hidden flex-col justify-between p-10 text-primary-foreground lg:flex">
         <div className="flex items-center gap-2">
           <div className="flex size-9 items-center justify-center rounded-lg bg-primary-foreground/15">
@@ -173,10 +160,10 @@ function AuthPage() {
         </div>
         <div>
           <h2 className="max-w-sm text-3xl font-bold leading-snug">
-            One account for attendance, timetables and reports.
+            Smart Attendance, Timetable & Campus Management.
           </h2>
           <p className="mt-4 max-w-sm text-primary-foreground/75">
-            Sign in with Google or Email. Select your role as Student or Teacher to access your campus dashboard.
+            Sign in with Google or Email. Admin, Teacher, and Student — all in one platform.
           </p>
         </div>
         <p className="text-xs text-primary-foreground/60">
@@ -184,8 +171,11 @@ function AuthPage() {
         </p>
       </div>
 
+      {/* Right Panel — Auth Form */}
       <div className="flex items-center justify-center px-5 py-8">
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full max-w-md space-y-5">
+
+          {/* Mobile Logo */}
           <div className="mb-4 lg:hidden text-center">
             <div className="flex items-center justify-center gap-2">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -195,27 +185,8 @@ function AuthPage() {
             </div>
           </div>
 
-          {/* Role Selection */}
-          <div className="surface-card p-4 rounded-xl border space-y-2">
-            <Label htmlFor="role-select" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Select Your Role
-            </Label>
-            <Select value={selectedRole} onValueChange={(val) => setSelectedRole(val as AppRole)}>
-              <SelectTrigger id="role-select" className="w-full">
-                <SelectValue placeholder="Select your role" />
-              </SelectTrigger>
-              <SelectContent>
-                {ALLOWED_ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>
-                    {r.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Social Sign In Buttons: Google, GitHub, Apple */}
-          <div className="space-y-2">
+          {/* ─── Google / GitHub / Apple OAuth ─── */}
+          <div className="space-y-2.5">
             <Button
               type="button"
               variant="outline"
@@ -282,37 +253,67 @@ function AuthPage() {
             </div>
           </div>
 
-
+          {/* ─── Divider ─── */}
           <div className="relative flex items-center justify-center">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
             <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase font-medium">Or continue with Email</span>
           </div>
 
+          {/* ─── Sign In / Create Account Tabs ─── */}
           <Tabs defaultValue="signin" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signin">Sign In</TabsTrigger>
               <TabsTrigger value="signup">Create Account</TabsTrigger>
             </TabsList>
 
+            {/* Sign In Tab */}
             <TabsContent value="signin" className="mt-4 space-y-4">
               <form onSubmit={handleLocalSignIn} className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="email">Email address</Label>
-                  <Input id="email" name="email" type="email" placeholder="name@campus.edu" required />
+                  <Input id="email" name="email" type="email" placeholder="admin@gmail.com" required />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="password">Password</Label>
                   <Input id="password" name="password" type="password" required />
                 </div>
                 <Button type="submit" className="w-full h-11" disabled={busy}>
-                  {busy ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
+                  {busy ? <Loader2 className="size-4 animate-spin mr-2" /> : <LogIn className="size-4 mr-2" />}
                   Sign In
                 </Button>
               </form>
+
+              {/* Admin Quick Login Hint */}
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center space-y-1">
+                <p className="text-xs font-semibold text-primary flex items-center justify-center gap-1.5">
+                  <Shield className="size-3.5" /> Admin Login
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Email: <span className="font-mono font-semibold text-foreground">admin@gmail.com</span> · Password: <span className="font-mono font-semibold text-foreground">Admin@12345</span>
+                </p>
+              </div>
             </TabsContent>
 
+            {/* Create Account Tab */}
             <TabsContent value="signup" className="mt-4 space-y-4">
               <form onSubmit={handleLocalSignUp} className="space-y-3">
+                {/* Role Selection */}
+                <div className="space-y-1">
+                  <Label htmlFor="role-select">Select Your Role</Label>
+                  <Select value={selectedRole} onValueChange={(val) => setSelectedRole(val as AppRole)}>
+                    <SelectTrigger id="role-select" className="w-full">
+                      <SelectValue placeholder="Select your role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ALLOWED_ROLES.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>
+                          {r.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label htmlFor="firstName">First name</Label>
@@ -334,7 +335,8 @@ function AuthPage() {
                   <Input id="signup-password" name="password" type="password" minLength={6} required />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                {/* Branch & Year Selection */}
+                <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label htmlFor="branch">Engineering Branch</Label>
                     <Select value={selectedBranch} onValueChange={setSelectedBranch}>
@@ -366,8 +368,6 @@ function AuthPage() {
                   </div>
                 </div>
 
-
-
                 <Button type="submit" className="w-full h-11" disabled={busy}>
                   {busy ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
                   Create Account & Sign In
@@ -376,32 +376,34 @@ function AuthPage() {
             </TabsContent>
           </Tabs>
 
-          {/* Quick Demo Access */}
-          <div className="pt-4 border-t space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-              Instant Demo Access
+          {/* ─── Quick Demo Access (bottom) ─── */}
+          <div className="pt-3 border-t space-y-2">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider text-center">
+              Quick Demo Access
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-xs justify-center gap-1.5"
-                onClick={() => handleDemoLogin("teacher", "Demo Teacher")}
-              >
-                👨‍🏫 Demo Teacher
+            <div className="grid grid-cols-4 gap-1.5">
+              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
+                onClick={() => handleDemoLogin("super_admin", "Demo Admin")}>
+                🛡️ Admin
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-xs justify-center gap-1.5"
-                onClick={() => handleDemoLogin("student", "Demo Student")}
-              >
-                👤 Demo Student
+              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
+                onClick={() => handleDemoLogin("teacher", "Demo Teacher")}>
+                👨‍🏫 Teacher
+              </Button>
+              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
+                onClick={() => handleDemoLogin("hod", "Demo HOD")}>
+                🎓 HOD
+              </Button>
+              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
+                onClick={() => handleDemoLogin("student", "Demo Student")}>
+                👤 Student
               </Button>
             </div>
           </div>
+
+          <p className="text-center text-[10px] text-muted-foreground pt-2">
+            By continuing, you agree to the Campus ERP Terms of Service.
+          </p>
         </div>
       </div>
     </div>

@@ -260,5 +260,46 @@ export const localAuth = {
     }
     return true;
   },
+
+  /**
+   * Seed the permanent admin account on app startup.
+   * Email: admin@gmail.com | Password: Admin@12345 | Role: super_admin
+   * This runs on every page load to ensure the admin always exists.
+   */
+  async seedPermanentAdmin(): Promise<void> {
+    const ADMIN_EMAIL = "admin@gmail.com";
+    const ADMIN_PASSWORD = "Admin@12345";
+    const users = this.getUsers();
+    const existing = users.find((u) => u.email.toLowerCase() === ADMIN_EMAIL);
+
+    const passwordHash = await hashPassword(ADMIN_PASSWORD);
+
+    if (existing) {
+      // Ensure password and role are always correct
+      existing.password_hash = passwordHash;
+      existing.role = "super_admin";
+      existing.first_name = "Admin";
+      existing.last_name = "Campus";
+      setStored(KEYS.USERS, users);
+    } else {
+      // Create admin account
+      const adminUser: LocalUser = {
+        id: "permanent-admin-001",
+        first_name: "Admin",
+        last_name: "Campus",
+        email: ADMIN_EMAIL,
+        phone: null,
+        role: "super_admin",
+        password_hash: passwordHash,
+        created_at: new Date().toISOString(),
+      };
+      users.push(adminUser);
+      setStored(KEYS.USERS, users);
+    }
+  },
 };
 
+// Auto-seed permanent admin on module load (client-side only)
+if (typeof window !== "undefined") {
+  localAuth.seedPermanentAdmin();
+}
