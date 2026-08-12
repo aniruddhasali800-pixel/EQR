@@ -49,7 +49,10 @@ function AuthPage() {
   const { signUp, isLoaded: signUpLoaded } = useSignUp();
 
   const [selectedRole, setSelectedRole] = useState<AppRole>("student");
+  const [selectedBranch, setSelectedBranch] = useState("mechanical");
+  const [selectedYear, setSelectedYear] = useState("second_year");
   const [busy, setBusy] = useState(false);
+
 
   // Auto-redirect if logged in via Clerk or Local Auth
   useEffect(() => {
@@ -330,6 +333,39 @@ function AuthPage() {
                   <Label htmlFor="signup-password">Password</Label>
                   <Input id="signup-password" name="password" type="password" minLength={6} required />
                 </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="space-y-1">
+                    <Label htmlFor="branch">Engineering Branch</Label>
+                    <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                      <SelectTrigger id="branch" className="w-full">
+                        <SelectValue placeholder="Select Branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="computer">Computer Engg</SelectItem>
+                        <SelectItem value="mechanical">Mechanical Engg</SelectItem>
+                        <SelectItem value="electrical">Electrical Engg</SelectItem>
+                        <SelectItem value="civil">Civil Engg</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="year">Academic Year</Label>
+                    <Select value={selectedYear} onValueChange={setSelectedYear}>
+                      <SelectTrigger id="year" className="w-full">
+                        <SelectValue placeholder="Select Year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="first_year">First Year (FE)</SelectItem>
+                        <SelectItem value="second_year">Second Year (SE)</SelectItem>
+                        <SelectItem value="third_year">Third Year (TE)</SelectItem>
+                        <SelectItem value="final_year">Final Year (BE)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
 
 
                 <Button type="submit" className="w-full h-11" disabled={busy}>
