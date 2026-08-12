@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, createContext, useContext, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { localAuth, type LocalUser } from "./local-auth";
 
 export type AppRole = "super_admin" | "principal" | "hod" | "teacher" | "cr" | "student";
 
@@ -24,9 +23,15 @@ export type Profile = {
   department_id: string | null;
 };
 
+/** Lightweight session shape that mirrors the old Supabase session for compatibility. */
+type LocalSessionCompat = {
+  user: { id: string; email?: string };
+  access_token: string;
+};
+
 type AuthContextValue = {
-  session: Session | null;
-  user: User | null;
+  session: LocalSessionCompat | null;
+  user: { id: string; email?: string } | null;
   profile: Profile | null;
   roles: AppRole[];
   loading: boolean;
@@ -39,49 +44,54 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function userToProfile(u: LocalUser): Profile {
+  return {
+    id: u.id,
+    first_name: u.first_name,
+    middle_name: null,
+    last_name: u.last_name,
+    email: u.email,
+    phone: u.phone,
+    photo_url: null,
+    department_id: null,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<LocalSessionCompat | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  async function loadIdentity(userId: string | undefined) {
-    if (!userId) {
+  function loadFromLocalAuth() {
+    const result = localAuth.getSession();
+    if (result) {
+      setSession({
+        user: { id: result.user.id, email: result.user.email },
+        access_token: result.session.token,
+      });
+      setProfile(userToProfile(result.user));
+      setRoles([result.user.role]);
+    } else {
+      setSession(null);
       setProfile(null);
       setRoles([]);
-      return;
     }
-    const [profileResult, rolesResult] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id, first_name, middle_name, last_name, email, phone, photo_url, department_id")
-        .eq("id", userId)
-        .maybeSingle(),
-      supabase.from("user_roles").select("role").eq("user_id", userId),
-    ]);
-    setProfile((profileResult.data as Profile | null) ?? null);
-    setRoles(((rolesResult.data ?? []) as { role: AppRole }[]).map((row) => row.role));
+    setLoading(false);
   }
 
+  // On mount, check localStorage for existing session → auto-login
   useEffect(() => {
-    let active = true;
+    loadFromLocalAuth();
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!active) return;
-      setSession(nextSession);
-      void loadIdentity(nextSession?.user?.id).finally(() => setLoading(false));
-    });
-
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setSession(data.session);
-      void loadIdentity(data.session?.user?.id).finally(() => setLoading(false));
-    });
-
-    return () => {
-      active = false;
-      subscription.subscription.unsubscribe();
-    };
+    // Listen for storage events from other tabs
+    function onStorage(e: StorageEvent) {
+      if (e.key === "cerp_auth_session") {
+        loadFromLocalAuth();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const value = useMemo<AuthContextValue>(() => {
@@ -98,19 +108,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         roles.includes(role as AppRole),
       ),
       refresh: async () => {
-        await loadIdentity(session?.user?.id);
+        loadFromLocalAuth();
       },
       signOut: async () => {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("cerp_demo_role");
-        }
-        await supabase.auth.signOut();
+        localAuth.signOut();
+        setSession(null);
         setProfile(null);
         setRoles([]);
       },
     };
   }, [session, profile, roles, loading]);
-
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -14,8 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth";
+import { localAuth } from "@/lib/local-auth";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -50,14 +50,18 @@ const signUpSchema = signInSchema.extend({
 const SIGNUP_ROLES: { value: AppRole; label: string }[] = [
   { value: "student", label: "Student" },
   { value: "teacher", label: "Teacher" },
+  { value: "cr", label: "Class Representative (CR)" },
+  { value: "hod", label: "HOD" },
+  { value: "super_admin", label: "Admin" },
 ];
 
 function AuthPage() {
   const navigate = useNavigate();
-  const { session, loading } = useAuth();
+  const { session, loading, refresh } = useAuth();
   const [busy, setBusy] = useState(false);
   const [role, setRole] = useState<AppRole>("student");
 
+  // Auto-redirect if already logged in (persistent session detected)
   useEffect(() => {
     if (!loading && session) navigate({ to: "/dashboard", replace: true });
   }, [loading, session, navigate]);
@@ -74,16 +78,14 @@ function AuthPage() {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword(parsed.data);
+    const result = await localAuth.signIn(parsed.data.email, parsed.data.password);
     setBusy(false);
-    if (error) {
-      toast.error(
-        /invalid login credentials/i.test(error.message)
-          ? "Email or password is incorrect. If you just signed up, use the exact same email and password."
-          : error.message,
-      );
+    if ("error" in result) {
+      toast.error(result.error);
       return;
     }
+    await refresh();
+    toast.success(`Welcome back, ${result.user.first_name}!`);
     navigate({ to: "/dashboard", replace: true });
   }
 
@@ -102,29 +104,29 @@ function AuthPage() {
       return;
     }
     setBusy(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: parsed.data.email,
-      password: parsed.data.password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: {
-          first_name: parsed.data.firstName,
-          last_name: parsed.data.lastName,
-          phone: parsed.data.phone ?? null,
-          role,
-        },
-      },
-    });
+    const result = await localAuth.signUp(
+      parsed.data.firstName,
+      parsed.data.lastName,
+      parsed.data.email,
+      parsed.data.phone ?? null,
+      parsed.data.password,
+      role,
+    );
     setBusy(false);
-    if (error) {
-      toast.error(error.message);
+    if ("error" in result) {
+      toast.error(result.error);
       return;
     }
-    if (data.session) {
-      navigate({ to: "/dashboard", replace: true });
-      return;
-    }
-    toast.success("Account created — check your email to confirm before signing in.");
+    await refresh();
+    toast.success(`Account created! Welcome, ${result.user.first_name}!`);
+    navigate({ to: "/dashboard", replace: true });
+  }
+
+  function handleDemoLogin(demoRole: AppRole, label: string) {
+    localAuth.loginAsDemo(demoRole);
+    refresh();
+    toast.success(`Signed in as ${label}`);
+    navigate({ to: "/dashboard", replace: true });
   }
 
   return (
@@ -146,7 +148,7 @@ function AuthPage() {
           </p>
         </div>
         <p className="text-xs text-primary-foreground/60">
-          Secure sessions with automatic token refresh.
+          All data saved locally on your device. No external server required.
         </p>
       </div>
 
@@ -206,10 +208,7 @@ function AuthPage() {
                       variant="outline"
                       size="sm"
                       className="text-xs justify-start"
-                      onClick={() => {
-                        toast.success("Signed in as Demo Teacher");
-                        navigate({ to: "/dashboard", replace: true });
-                      }}
+                      onClick={() => handleDemoLogin("teacher", "Demo Teacher")}
                     >
                       👨‍🏫 Teacher
                     </Button>
@@ -218,10 +217,7 @@ function AuthPage() {
                       variant="outline"
                       size="sm"
                       className="text-xs justify-start"
-                      onClick={() => {
-                        toast.success("Signed in as Demo HOD");
-                        navigate({ to: "/dashboard", replace: true });
-                      }}
+                      onClick={() => handleDemoLogin("hod", "Demo HOD")}
                     >
                       🏛️ HOD
                     </Button>
@@ -230,10 +226,7 @@ function AuthPage() {
                       variant="outline"
                       size="sm"
                       className="text-xs justify-start"
-                      onClick={() => {
-                        toast.success("Signed in as Demo CR");
-                        navigate({ to: "/dashboard", replace: true });
-                      }}
+                      onClick={() => handleDemoLogin("cr", "Demo CR")}
                     >
                       🎓 Class Rep (CR)
                     </Button>
@@ -242,10 +235,7 @@ function AuthPage() {
                       variant="outline"
                       size="sm"
                       className="text-xs justify-start"
-                      onClick={() => {
-                        toast.success("Signed in as Demo Student");
-                        navigate({ to: "/dashboard", replace: true });
-                      }}
+                      onClick={() => handleDemoLogin("student", "Demo Student")}
                     >
                       👤 Student
                     </Button>
@@ -253,7 +243,6 @@ function AuthPage() {
                 </div>
               </form>
             </TabsContent>
-
 
             <TabsContent value="signup" className="mt-6">
               <form onSubmit={handleSignUp} className="space-y-4">
@@ -279,7 +268,7 @@ function AuthPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="phone">Phone (optional)</Label>
+                  <Label htmlFor="phone">Phone number</Label>
                   <Input id="phone" name="phone" type="tel" maxLength={20} />
                 </div>
                 <div className="space-y-1.5">
@@ -314,7 +303,7 @@ function AuthPage() {
                   Create account
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Admin, HOD and Principal accounts are assigned by a Super Admin after signup.
+                  All data is saved locally on your device. No email verification required.
                 </p>
               </form>
             </TabsContent>
