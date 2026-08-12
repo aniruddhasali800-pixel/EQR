@@ -107,7 +107,7 @@ function SidebarBody({ onNavigate }: { onNavigate?: (() => void) | undefined }) 
               {displayName(profile)}
             </p>
             <p className="truncate text-[11px] text-sidebar-foreground/60">
-              {roles.map((role) => ROLE_LABELS[role]).join(", ") || "No role"}
+              {(roles || []).map((role) => ROLE_LABELS[role] || role).join(", ") || "No role"}
             </p>
           </div>
         </div>
@@ -171,11 +171,12 @@ export function AppShell({
           </div>
 
           <div className="flex items-center gap-2">
-            {roles[0] ? (
+            {roles && roles[0] ? (
               <Badge variant="secondary" className="hidden sm:inline-flex">
-                {ROLE_LABELS[roles[0]]}
+                {ROLE_LABELS[roles[0]] || roles[0]}
               </Badge>
             ) : null}
+
             {actions}
           </div>
         </header>

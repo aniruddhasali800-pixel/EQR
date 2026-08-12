@@ -271,7 +271,7 @@ function AuthPage() {
               <form onSubmit={handleLocalSignIn} className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="email">Email address</Label>
-                  <Input id="email" name="email" type="email" placeholder="admin@gmail.com" required />
+                  <Input id="email" name="email" type="email" placeholder="user@campus.edu" required />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="password">Password</Label>
@@ -282,16 +282,6 @@ function AuthPage() {
                   Sign In
                 </Button>
               </form>
-
-              {/* Admin Quick Login Hint */}
-              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center space-y-1">
-                <p className="text-xs font-semibold text-primary flex items-center justify-center gap-1.5">
-                  <Shield className="size-3.5" /> Admin Login
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  Email: <span className="font-mono font-semibold text-foreground">admin@gmail.com</span> · Password: <span className="font-mono font-semibold text-foreground">Admin@12345</span>
-                </p>
-              </div>
             </TabsContent>
 
             {/* Create Account Tab */}
@@ -381,25 +371,18 @@ function AuthPage() {
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider text-center">
               Quick Demo Access
             </p>
-            <div className="grid grid-cols-4 gap-1.5">
-              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
-                onClick={() => handleDemoLogin("super_admin", "Demo Admin")}>
-                🛡️ Admin
-              </Button>
-              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" variant="outline" size="sm" className="text-xs h-9 justify-center gap-2"
                 onClick={() => handleDemoLogin("teacher", "Demo Teacher")}>
-                👨‍🏫 Teacher
+                👨‍🏫 Demo Teacher
               </Button>
-              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
-                onClick={() => handleDemoLogin("hod", "Demo HOD")}>
-                🎓 HOD
-              </Button>
-              <Button type="button" variant="ghost" size="sm" className="text-[10px] h-8 px-1"
+              <Button type="button" variant="outline" size="sm" className="text-xs h-9 justify-center gap-2"
                 onClick={() => handleDemoLogin("student", "Demo Student")}>
-                👤 Student
+                👤 Demo Student
               </Button>
             </div>
           </div>
+
 
           <p className="text-center text-[10px] text-muted-foreground pt-2">
             By continuing, you agree to the Campus ERP Terms of Service.
