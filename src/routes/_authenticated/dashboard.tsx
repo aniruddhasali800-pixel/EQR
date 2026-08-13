@@ -60,10 +60,22 @@ const BRANCH_DATA: Record<
   { name: string; students: number; teachers: number; subjects: number; sections: number }
 > = {
   all: { name: "All Engineering Branches", students: 11, teachers: 15, subjects: 15, sections: 6 },
-  mechanical: { name: "Mechanical Engineering", students: 2, teachers: 4, subjects: 4, sections: 2 },
+  mechanical: {
+    name: "Mechanical Engineering",
+    students: 2,
+    teachers: 4,
+    subjects: 4,
+    sections: 2,
+  },
   civil: { name: "Civil Engineering", students: 3, teachers: 3, subjects: 3, sections: 1 },
   computer: { name: "Computer Engineering", students: 4, teachers: 5, subjects: 5, sections: 2 },
-  electrical: { name: "Electrical Engineering", students: 2, teachers: 3, subjects: 3, sections: 1 },
+  electrical: {
+    name: "Electrical Engineering",
+    students: 2,
+    teachers: 3,
+    subjects: 3,
+    sections: 1,
+  },
 };
 
 function StatCard({
@@ -104,14 +116,13 @@ function Dashboard() {
   const studentQrToken = user?.id ? buildStudentToken(user.id) : "";
 
   // Dynamic branch stats
-  const activeBranchInfo = BRANCH_DATA[selectedBranch] || BRANCH_DATA.mechanical!;
+  const activeBranchInfo = BRANCH_DATA[selectedBranch] || BRANCH_DATA["mechanical"]!;
 
   return (
     <AppShell
       title={`Welcome, ${displayName(profile).split(" ")[0] || "User"}`}
       description={`${DAY_NAMES[todayDow]} · ${(roles || []).map((role) => ROLE_LABELS[role] || role).join(", ") || "No role assigned"}`}
     >
-
       <div className="space-y-6">
         {/* Admin & Teacher Branch Selector Bar */}
         <div className="surface-card p-4 rounded-2xl border bg-gradient-to-r from-card via-card to-primary/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -121,7 +132,9 @@ function Dashboard() {
             </div>
             <div>
               <h3 className="font-semibold text-sm">Select Active Branch & Year</h3>
-              <p className="text-xs text-muted-foreground">View branch-isolated totals and class schedules</p>
+              <p className="text-xs text-muted-foreground">
+                View branch-isolated totals and class schedules
+              </p>
             </div>
           </div>
 
@@ -164,7 +177,10 @@ function Dashboard() {
               <h2 className="font-display text-lg font-semibold">
                 {isStaff ? "Live QR attendance & approvals" : "Mark & approve attendance"}
               </h2>
-              <Badge variant="outline" className="gap-1 border-emerald-500/40 text-emerald-700 bg-emerald-50/50">
+              <Badge
+                variant="outline"
+                className="gap-1 border-emerald-500/40 text-emerald-700 bg-emerald-50/50"
+              >
                 <HardDrive className="size-3 text-emerald-600" /> Local Storage Engine
               </Badge>
             </div>
@@ -301,17 +317,22 @@ function Dashboard() {
                   {selectedBranch === "civil"
                     ? "Structural Analysis II"
                     : selectedBranch === "computer"
-                    ? "Advanced Operating Systems"
-                    : selectedBranch === "electrical"
-                    ? "Power Electronics & Drives"
-                    : "Thermodynamics & Heat Transfer"}
-                  <span className="text-muted-foreground text-xs ml-2">· {selectedBranch.toUpperCase()}301</span>
+                      ? "Advanced Operating Systems"
+                      : selectedBranch === "electrical"
+                        ? "Power Electronics & Drives"
+                        : "Thermodynamics & Heat Transfer"}
+                  <span className="text-muted-foreground text-xs ml-2">
+                    · {selectedBranch.toUpperCase()}301
+                  </span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   10:00 AM – 11:30 AM · Room A-204 · {activeBranchInfo.name}
                 </p>
               </div>
-              <Badge variant="secondary" className="gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
+              <Badge
+                variant="secondary"
+                className="gap-1 bg-emerald-50 text-emerald-700 border-emerald-200"
+              >
                 <QrCode className="size-3.5" />
                 Live QR Active
               </Badge>
@@ -326,11 +347,13 @@ function Dashboard() {
                   {selectedBranch === "civil"
                     ? "Fluid Mechanics Lab"
                     : selectedBranch === "computer"
-                    ? "Database Management Systems"
-                    : selectedBranch === "electrical"
-                    ? "Control Systems"
-                    : "Fluid Machinery Lab"}
-                  <span className="text-muted-foreground text-xs ml-2">· {selectedBranch.toUpperCase()}302</span>
+                      ? "Database Management Systems"
+                      : selectedBranch === "electrical"
+                        ? "Control Systems"
+                        : "Fluid Machinery Lab"}
+                  <span className="text-muted-foreground text-xs ml-2">
+                    · {selectedBranch.toUpperCase()}302
+                  </span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   02:00 PM – 04:00 PM · Lab B-102 · {activeBranchInfo.name}

@@ -30,10 +30,34 @@ const STORAGE_KEYS = {
 
 // Pre-populated demo teachers for groups
 export const DEMO_TEACHERS = [
-  { id: "tech_1", name: "Prof. Rajesh Kumar", subject: "Thermodynamics", email: "rajesh.kumar@campus.edu", department: "Mechanical" },
-  { id: "tech_2", name: "Dr. Sunita Rao", subject: "Fluid Mechanics", email: "sunita.rao@campus.edu", department: "Mechanical" },
-  { id: "tech_3", name: "Prof. Amit Verma", subject: "Data Structures & Algorithms", email: "amit.verma@campus.edu", department: "Computer" },
-  { id: "tech_4", name: "Dr. Meera Joshi", subject: "Circuit Theory", email: "meera.joshi@campus.edu", department: "Electrical" },
+  {
+    id: "tech_1",
+    name: "Prof. Rajesh Kumar",
+    subject: "Thermodynamics",
+    email: "rajesh.kumar@campus.edu",
+    department: "Mechanical",
+  },
+  {
+    id: "tech_2",
+    name: "Dr. Sunita Rao",
+    subject: "Fluid Mechanics",
+    email: "sunita.rao@campus.edu",
+    department: "Mechanical",
+  },
+  {
+    id: "tech_3",
+    name: "Prof. Amit Verma",
+    subject: "Data Structures & Algorithms",
+    email: "amit.verma@campus.edu",
+    department: "Computer",
+  },
+  {
+    id: "tech_4",
+    name: "Dr. Meera Joshi",
+    subject: "Circuit Theory",
+    email: "meera.joshi@campus.edu",
+    department: "Electrical",
+  },
 ];
 
 function getStored<T>(key: string, fallback: T): T {
@@ -63,7 +87,8 @@ const DEFAULT_MESSAGES: GroupChatMessage[] = [
     sender_id: "tech_1",
     sender_name: "Prof. Rajesh Kumar",
     sender_role: "Teacher",
-    content: "Welcome to the 2nd Year Mechanical Class Group! Please check the latest timetable below.",
+    content:
+      "Welcome to the 2nd Year Mechanical Class Group! Please check the latest timetable below.",
     created_at: new Date(Date.now() - 3600000).toISOString(),
   },
   {
@@ -83,7 +108,14 @@ export const groupChatStore = {
     return all.filter((m) => m.group_id === groupId);
   },
 
-  sendMessage(groupId: string, senderId: string, senderName: string, senderRole: string, content: string, attachmentUrl?: string): GroupChatMessage {
+  sendMessage(
+    groupId: string,
+    senderId: string,
+    senderName: string,
+    senderRole: string,
+    content: string,
+    attachmentUrl?: string,
+  ): GroupChatMessage {
     const all = getStored<GroupChatMessage[]>(STORAGE_KEYS.MESSAGES, DEFAULT_MESSAGES);
     const newMessage: GroupChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -106,7 +138,12 @@ export const groupChatStore = {
     return list.find((t) => t.group_id === groupId) || null;
   },
 
-  saveTimetable(groupId: string, uploadedByName: string, uploadedByRole: string, fileUrl: string): GroupTimetable {
+  saveTimetable(
+    groupId: string,
+    uploadedByName: string,
+    uploadedByRole: string,
+    fileUrl: string,
+  ): GroupTimetable {
     const list = getStored<GroupTimetable[]>(STORAGE_KEYS.TIMETABLES, []);
     const filtered = list.filter((t) => t.group_id !== groupId);
     const newRecord: GroupTimetable = {

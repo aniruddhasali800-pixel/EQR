@@ -27,13 +27,12 @@ export const markAttendanceByToken = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: unknown) => markSchema.parse(input))
   .handler(async ({ data, context }): Promise<MarkResult> => {
-
     const studentToken = parseStudentToken(data.token);
 
     try {
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-      let targetStudentId = context.userId;
+      let targetStudentId = context?.userId || "demo-local-user";
       let targetSessionId: string | null = null;
       let isStaffApproval = false;
 
@@ -52,7 +51,7 @@ export const markAttendanceByToken = createServerFn({ method: "POST" })
         if (data.sessionId) {
           query = query.eq("id", data.sessionId);
         } else {
-          query = query.eq("teacher_id", context.userId);
+          query = query.eq("teacher_id", context?.userId || "demo-local-user");
         }
 
         const { data: sessions, error: sessErr } = await query.order("created_at", {
@@ -155,7 +154,9 @@ export const markAttendanceByToken = createServerFn({ method: "POST" })
       }
 
       const { localStore } = await import("@/lib/local-store");
-      const targetStudentId = studentToken ? studentToken.userId : context.userId;
+      const targetStudentId = studentToken
+        ? studentToken.userId
+        : context?.userId || "demo-local-user";
       const targetSessionId = data.sessionId || "sess_local_active";
 
       const record = localStore.addOrUpdateRecord(targetSessionId, targetStudentId, "approved");
@@ -194,5 +195,3 @@ export const markAttendanceByToken = createServerFn({ method: "POST" })
       };
     }
   });
-
-

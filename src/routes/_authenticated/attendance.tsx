@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { FileSpreadsheet, Loader2, Printer, QrCode, RefreshCcw, ScanLine, Share2, Square, Users } from "lucide-react";
+import {
+  FileSpreadsheet,
+  Loader2,
+  Printer,
+  QrCode,
+  RefreshCcw,
+  ScanLine,
+  Share2,
+  Square,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { QrScannerDialog } from "@/components/QrScannerDialog";
@@ -11,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { exportToExcel, exportToPdf, shareAttendance } from "@/lib/export-utils";
 import { notifyTeacherFromCR } from "@/lib/notifications";
-
 
 import {
   Select,
@@ -22,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/lib/auth";
+import { useAuth, displayName } from "@/lib/auth";
 import { buildToken, currentTick } from "@/lib/qr-token";
 
 export const Route = createFileRoute("/_authenticated/attendance")({
@@ -55,7 +64,7 @@ type ActiveSession = {
 };
 
 function AttendancePage() {
-  const { user, isStaff } = useAuth();
+  const { user, isStaff, profile } = useAuth();
   const queryClient = useQueryClient();
   const [sectionId, setSectionId] = useState("");
   const [subjectId, setSubjectId] = useState("");
@@ -77,8 +86,20 @@ function AttendancePage() {
         // Fallback
       }
       return [
-        { id: "sec_cs_4a", name: "Computer Science", semester: 4, section: "A", departments: { code: "CS" } },
-        { id: "sec_it_6b", name: "Information Technology", semester: 6, section: "B", departments: { code: "IT" } },
+        {
+          id: "sec_cs_4a",
+          name: "Computer Science",
+          semester: 4,
+          section: "A",
+          departments: { code: "CS" },
+        },
+        {
+          id: "sec_it_6b",
+          name: "Information Technology",
+          semester: 6,
+          section: "B",
+          departments: { code: "IT" },
+        },
       ];
     },
   });
@@ -96,8 +117,20 @@ function AttendancePage() {
         // Fallback
       }
       return [
-        { id: "sub_dbms", name: "Database Systems", code: "CS401", semester: 4, departments: { code: "CS" } },
-        { id: "sub_networks", name: "Computer Networks", code: "CS402", semester: 4, departments: { code: "CS" } },
+        {
+          id: "sub_dbms",
+          name: "Database Systems",
+          code: "CS401",
+          semester: 4,
+          departments: { code: "CS" },
+        },
+        {
+          id: "sub_networks",
+          name: "Computer Networks",
+          code: "CS402",
+          semester: 4,
+          departments: { code: "CS" },
+        },
       ];
     },
   });
@@ -153,7 +186,10 @@ function AttendancePage() {
         if (!error && records && records.length > 0) {
           const ids = records.map((row) => row.student_id);
           const [{ data: profiles }, { data: details }] = await Promise.all([
-            supabase.from("profiles").select("id, first_name, last_name, email, phone").in("id", ids),
+            supabase
+              .from("profiles")
+              .select("id, first_name, last_name, email, phone")
+              .in("id", ids),
             supabase.from("student_details").select("user_id, roll_number").in("user_id", ids),
           ]);
           return records.map((record) => {
@@ -163,7 +199,8 @@ function AttendancePage() {
               id: record.student_id,
               markedAt: record.marked_at,
               status: record.status,
-              name: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Student",
+              name:
+                [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Student",
               roll: detail?.roll_number ?? "—",
               email: profile?.email ?? "—",
               phone: profile?.phone ?? "—",
@@ -176,7 +213,9 @@ function AttendancePage() {
 
       // Offline local store records fallback
       const { localStore } = await import("@/lib/local-store");
-      const localRecords = localStore.getRecords().filter((r) => r.session_id === session!.id || r.session_id === "sess_local_active");
+      const localRecords = localStore
+        .getRecords()
+        .filter((r) => r.session_id === session!.id || r.session_id === "sess_local_active");
       const profiles = localStore.getProfiles();
       const details = localStore.getStudentDetails();
 
@@ -209,7 +248,6 @@ function AttendancePage() {
       return allRows;
     },
   });
-
 
   async function startSession() {
     const targetSection = sectionId || sections.data?.[0]?.id || "sec_cs_4a";
@@ -251,7 +289,6 @@ function AttendancePage() {
     setStarting(false);
     toast.success("Live QR session started (Local Mode).");
   }
-
 
   async function endSession() {
     if (!session) return;
@@ -374,7 +411,11 @@ function AttendancePage() {
               </Button>
             </div>
           ) : (
-            <Button className="w-full gap-2" onClick={() => void startSession()} disabled={starting}>
+            <Button
+              className="w-full gap-2"
+              onClick={() => void startSession()}
+              disabled={starting}
+            >
               {starting ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
@@ -386,7 +427,8 @@ function AttendancePage() {
 
           <div className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
             Each code is signed for a single second and verified on the server, so a shared photo of
-            the QR expires before it can be reused. Teachers can also scan student QR codes to approve.
+            the QR expires before it can be reused. Teachers can also scan student QR codes to
+            approve.
           </div>
         </section>
 
@@ -421,14 +463,13 @@ function AttendancePage() {
             void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
           }
         }}
-        sessionId={session?.id}
+        sessionId={session?.id || undefined}
         title="Approve Student Attendance"
         description="Scan a student's personal approval QR code or enter their token to approve their attendance."
       />
 
       {session ? (
         <section className="mt-6 space-y-3">
-
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Users className="size-4 text-primary" />
@@ -449,8 +490,8 @@ function AttendancePage() {
                         roll: p.roll,
                         email: p.email,
                         phone: p.phone,
-                        className: selectedSection?.name,
-                        subject: subjects.data?.find((s) => s.id === subjectId)?.name,
+                        className: selectedSection?.name ?? null,
+                        subject: subjects.data?.find((s) => s.id === subjectId)?.name ?? null,
                         markedAt: p.markedAt,
                         status: p.status || "Approved",
                       })),
@@ -472,12 +513,14 @@ function AttendancePage() {
                         roll: p.roll,
                         email: p.email,
                         phone: p.phone,
-                        className: selectedSection?.name,
-                        subject: subjects.data?.find((s) => s.id === subjectId)?.name,
+                        className: selectedSection?.name ?? null,
+                        subject: subjects.data?.find((s) => s.id === subjectId)?.name ?? null,
                         markedAt: p.markedAt,
                         status: p.status || "Approved",
                       })),
-                      selectedSection?.name ? `Class ${selectedSection.name}` : "Lecture Attendance",
+                      selectedSection?.name
+                        ? `Class ${selectedSection.name}`
+                        : "Lecture Attendance",
                     )
                   }
                 >
@@ -497,7 +540,9 @@ function AttendancePage() {
                         phone: p.phone,
                         markedAt: p.markedAt,
                       })),
-                      selectedSection?.name ? `Class ${selectedSection.name}` : "Lecture Attendance",
+                      selectedSection?.name
+                        ? `Class ${selectedSection.name}`
+                        : "Lecture Attendance",
                     )
                   }
                 >
@@ -514,7 +559,10 @@ function AttendancePage() {
               </div>
             ) : (
               (present.data ?? []).map((row) => (
-                <article key={row.id} className="surface-card flex flex-wrap items-center gap-x-4 gap-y-1 p-4">
+                <article
+                  key={row.id}
+                  className="surface-card flex flex-wrap items-center gap-x-4 gap-y-1 p-4"
+                >
                   <p className="font-medium">{row.name}</p>
                   <p className="text-sm text-muted-foreground">Roll {row.roll}</p>
                   <p className="text-sm text-muted-foreground">{row.email}</p>
@@ -530,8 +578,14 @@ function AttendancePage() {
                     size="sm"
                     className="h-7 px-2 text-xs text-primary hover:bg-primary/10"
                     onClick={() => {
-                      const subjectName = subjects.data?.find((s) => s.id === subjectId)?.name || "Lecture";
-                      notifyTeacherFromCR(displayName(profile), row.name, subjectName, "Verified by CR");
+                      const subjectName =
+                        subjects.data?.find((s) => s.id === subjectId)?.name || "Lecture";
+                      notifyTeacherFromCR(
+                        displayName(profile),
+                        row.name,
+                        subjectName,
+                        "Verified by CR",
+                      );
                       toast.success(`Updated status for ${row.name}`);
                       toast.info(`Teacher automatically notified of CR attendance update.`);
                       void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
@@ -548,6 +602,3 @@ function AttendancePage() {
     </AppShell>
   );
 }
-
-
-

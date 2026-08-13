@@ -22,7 +22,7 @@ export function QrScannerDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sessionId?: string;
+  sessionId?: string | undefined;
   title?: string;
   description?: string;
 }) {
@@ -276,7 +276,10 @@ export function QrScannerDialog({
                 className="space-y-3"
               >
                 <div className="space-y-1.5">
-                  <label htmlFor="manual-qr-token" className="text-xs font-medium text-muted-foreground">
+                  <label
+                    htmlFor="manual-qr-token"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
                     QR Token string or payload
                   </label>
                   <Input
@@ -322,4 +325,3 @@ function Row({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

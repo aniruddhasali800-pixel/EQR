@@ -23,7 +23,8 @@ export const Route = createFileRoute("/auth")({
       { title: "Sign in — Campus ERP" },
       {
         name: "description",
-        content: "Sign in with Google or email to access attendance, timetables and role dashboards.",
+        content:
+          "Sign in with Google or email to access attendance, timetables and role dashboards.",
       },
     ],
   }),
@@ -121,14 +122,7 @@ function AuthPage() {
     }
 
     setBusy(true);
-    const result = await localAuth.signUp(
-      firstName,
-      lastName,
-      email,
-      null,
-      password,
-      selectedRole,
-    );
+    const result = await localAuth.signUp(firstName, lastName, email, null, password, selectedRole);
     setBusy(false);
 
     if ("error" in result) {
@@ -174,7 +168,6 @@ function AuthPage() {
       {/* Right Panel — Auth Form */}
       <div className="flex items-center justify-center px-5 py-8">
         <div className="w-full max-w-md space-y-5">
-
           {/* Mobile Logo */}
           <div className="mb-4 lg:hidden text-center">
             <div className="flex items-center justify-center gap-2">
@@ -202,10 +195,22 @@ function AuthPage() {
               }}
             >
               <svg className="size-4" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.28v3.15C3.26 21.3 7.37 24 12 24z" />
-                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.28C.46 8.2.0 10.05.0 12s.46 3.8 1.28 5.42l4-3.15z" />
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.26 2.7 1.28 6.58l4 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.28v3.15C3.26 21.3 7.37 24 12 24z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.28C.46 8.2.0 10.05.0 12s.46 3.8 1.28 5.42l4-3.15z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.26 2.7 1.28 6.58l4 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                />
               </svg>
               Continue with Google
             </Button>
@@ -255,8 +260,12 @@ function AuthPage() {
 
           {/* ─── Divider ─── */}
           <div className="relative flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
-            <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase font-medium">Or continue with Email</span>
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase font-medium">
+              Or continue with Email
+            </span>
           </div>
 
           {/* ─── Sign In / Create Account Tabs ─── */}
@@ -271,14 +280,24 @@ function AuthPage() {
               <form onSubmit={handleLocalSignIn} className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="email">Email address</Label>
-                  <Input id="email" name="email" type="email" placeholder="user@campus.edu" required />
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    placeholder="user@campus.edu"
+                    required
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="password">Password</Label>
                   <Input id="password" name="password" type="password" required />
                 </div>
                 <Button type="submit" className="w-full h-11" disabled={busy}>
-                  {busy ? <Loader2 className="size-4 animate-spin mr-2" /> : <LogIn className="size-4 mr-2" />}
+                  {busy ? (
+                    <Loader2 className="size-4 animate-spin mr-2" />
+                  ) : (
+                    <LogIn className="size-4 mr-2" />
+                  )}
                   Sign In
                 </Button>
               </form>
@@ -290,7 +309,10 @@ function AuthPage() {
                 {/* Role Selection */}
                 <div className="space-y-1">
                   <Label htmlFor="role-select">Select Your Role</Label>
-                  <Select value={selectedRole} onValueChange={(val) => setSelectedRole(val as AppRole)}>
+                  <Select
+                    value={selectedRole}
+                    onValueChange={(val) => setSelectedRole(val as AppRole)}
+                  >
                     <SelectTrigger id="role-select" className="w-full">
                       <SelectValue placeholder="Select your role" />
                     </SelectTrigger>
@@ -317,12 +339,24 @@ function AuthPage() {
 
                 <div className="space-y-1">
                   <Label htmlFor="signup-email">Email address</Label>
-                  <Input id="signup-email" name="email" type="email" placeholder="rahul@campus.edu" required />
+                  <Input
+                    id="signup-email"
+                    name="email"
+                    type="email"
+                    placeholder="rahul@campus.edu"
+                    required
+                  />
                 </div>
 
                 <div className="space-y-1">
                   <Label htmlFor="signup-password">Password</Label>
-                  <Input id="signup-password" name="password" type="password" minLength={6} required />
+                  <Input
+                    id="signup-password"
+                    name="password"
+                    type="password"
+                    minLength={6}
+                    required
+                  />
                 </div>
 
                 {/* Branch & Year Selection */}
@@ -372,17 +406,26 @@ function AuthPage() {
               Quick Demo Access
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <Button type="button" variant="outline" size="sm" className="text-xs h-9 justify-center gap-2"
-                onClick={() => handleDemoLogin("teacher", "Demo Teacher")}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs h-9 justify-center gap-2"
+                onClick={() => handleDemoLogin("teacher", "Demo Teacher")}
+              >
                 👨‍🏫 Demo Teacher
               </Button>
-              <Button type="button" variant="outline" size="sm" className="text-xs h-9 justify-center gap-2"
-                onClick={() => handleDemoLogin("student", "Demo Student")}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs h-9 justify-center gap-2"
+                onClick={() => handleDemoLogin("student", "Demo Student")}
+              >
                 👤 Demo Student
               </Button>
             </div>
           </div>
-
 
           <p className="text-center text-[10px] text-muted-foreground pt-2">
             By continuing, you agree to the Campus ERP Terms of Service.

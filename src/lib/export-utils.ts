@@ -20,7 +20,16 @@ export type AttendanceExportRow = {
 export function exportToExcel(records: AttendanceExportRow[], sessionName = "Attendance_Report") {
   if (records.length === 0) return;
 
-  const headers = ["Roll Number", "Student Name", "Email ID", "Phone", "Subject", "Class", "Marked Time", "Status"];
+  const headers = [
+    "Roll Number",
+    "Student Name",
+    "Email ID",
+    "Phone",
+    "Subject",
+    "Class",
+    "Marked Time",
+    "Status",
+  ];
   const rows = records.map((r) => [
     `"${(r.roll || "—").replace(/"/g, '""')}"`,
     `"${(r.name || "Student").replace(/"/g, '""')}"`,
@@ -32,7 +41,9 @@ export function exportToExcel(records: AttendanceExportRow[], sessionName = "Att
     `"${(r.status || "Approved").replace(/"/g, '""')}"`,
   ]);
 
-  const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
+  const csvContent =
+    "data:text/csv;charset=utf-8,\uFEFF" +
+    [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
   const filename = `${sessionName}_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -122,11 +133,18 @@ export function exportToPdf(records: AttendanceExportRow[], title = "Attendance 
 /**
  * Shares attendance summary directly to WhatsApp or native Web Share API.
  */
-export async function shareAttendance(records: AttendanceExportRow[], title = "Attendance Summary") {
-  const textSummary = `📋 *Campus ERP ${title}*\n📅 Date: ${new Date().toLocaleDateString()}\n👥 Total Present: ${records.length}\n\n` +
+export async function shareAttendance(
+  records: AttendanceExportRow[],
+  title = "Attendance Summary",
+) {
+  const textSummary =
+    `📋 *Campus ERP ${title}*\n📅 Date: ${new Date().toLocaleDateString()}\n👥 Total Present: ${records.length}\n\n` +
     records
       .slice(0, 15)
-      .map((r, i) => `${i + 1}. *${r.name}* (${r.roll || "—"}) - ${new Date(r.markedAt).toLocaleTimeString()}`)
+      .map(
+        (r, i) =>
+          `${i + 1}. *${r.name}* (${r.roll || "—"}) - ${new Date(r.markedAt).toLocaleTimeString()}`,
+      )
       .join("\n") +
     (records.length > 15 ? `\n...and ${records.length - 15} more.` : "");
 

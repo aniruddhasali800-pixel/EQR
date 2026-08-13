@@ -142,7 +142,9 @@ export const localStore = {
     setItem(STORAGE_KEYS.DETAILS, list);
   },
 
-  createSession(session: Omit<LocalAttendanceSession, "id"> & { id?: string }): LocalAttendanceSession {
+  createSession(
+    session: Omit<LocalAttendanceSession, "id"> & { id?: string },
+  ): LocalAttendanceSession {
     const sessions = this.getSessions();
     const newSession: LocalAttendanceSession = {
       ...session,
@@ -160,7 +162,11 @@ export const localStore = {
     setItem(STORAGE_KEYS.SESSIONS, sessions);
   },
 
-  addOrUpdateRecord(sessionId: string, studentId: string, status = "approved"): LocalAttendanceRecord {
+  addOrUpdateRecord(
+    sessionId: string,
+    studentId: string,
+    status = "approved",
+  ): LocalAttendanceRecord {
     const records = this.getRecords();
     const existingIndex = records.findIndex(
       (r) => r.session_id === sessionId && r.student_id === studentId,

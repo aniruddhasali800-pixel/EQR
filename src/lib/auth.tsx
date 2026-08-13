@@ -59,7 +59,6 @@ function userToProfile(u: LocalUser): Profile {
   };
 }
 
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<LocalSessionCompat | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);

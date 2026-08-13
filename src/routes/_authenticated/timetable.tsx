@@ -94,12 +94,40 @@ function TimetableGroupPage() {
     // Load student list (privacy: names only shown)
     const allProfiles = localStore.getProfiles();
     const studentList = allProfiles.filter((p) => p.role === "student" || p.role === "cr");
-    setStudents(studentList.length > 0 ? studentList : [
-      { id: "s1", first_name: "Rahul", last_name: "Sharma", email: "rahul@campus.edu", role: "student" },
-      { id: "s2", first_name: "Priya", last_name: "Patel", email: "priya@campus.edu", role: "student" },
-      { id: "s3", first_name: "Aman", last_name: "Gupta", email: "aman@campus.edu", role: "cr" },
-      { id: "s4", first_name: "Neha", last_name: "Singh", email: "neha@campus.edu", role: "student" },
-    ]);
+    setStudents(
+      studentList.length > 0
+        ? studentList
+        : [
+            {
+              id: "s1",
+              first_name: "Rahul",
+              last_name: "Sharma",
+              email: "rahul@campus.edu",
+              role: "student",
+            },
+            {
+              id: "s2",
+              first_name: "Priya",
+              last_name: "Patel",
+              email: "priya@campus.edu",
+              role: "student",
+            },
+            {
+              id: "s3",
+              first_name: "Aman",
+              last_name: "Gupta",
+              email: "aman@campus.edu",
+              role: "cr",
+            },
+            {
+              id: "s4",
+              first_name: "Neha",
+              last_name: "Singh",
+              email: "neha@campus.edu",
+              role: "student",
+            },
+          ],
+    );
   }, [groupId]);
 
   // Send group message
@@ -146,7 +174,12 @@ function TimetableGroupPage() {
     const uploaderName = displayName(profile);
     const uploaderRole = roles[0] ? roles[0].toUpperCase() : "TEACHER";
 
-    const saved = groupChatStore.saveTimetable(groupId, uploaderName, uploaderRole, timetablePreview);
+    const saved = groupChatStore.saveTimetable(
+      groupId,
+      uploaderName,
+      uploaderRole,
+      timetablePreview,
+    );
     setTimetableRecord(saved);
     setUploadOpen(false);
     toast.success("Class timetable uploaded successfully!");
@@ -186,8 +219,14 @@ function TimetableGroupPage() {
 
                 {timetablePreview ? (
                   <div className="rounded-lg border p-2 bg-muted/40">
-                    <p className="text-xs font-semibold mb-2 text-emerald-600">File Preview Loaded</p>
-                    <img src={timetablePreview} alt="Timetable preview" className="max-h-48 rounded object-cover w-full" />
+                    <p className="text-xs font-semibold mb-2 text-emerald-600">
+                      File Preview Loaded
+                    </p>
+                    <img
+                      src={timetablePreview}
+                      alt="Timetable preview"
+                      className="max-h-48 rounded object-cover w-full"
+                    />
                   </div>
                 ) : null}
 
@@ -224,7 +263,9 @@ function TimetableGroupPage() {
           <div className="flex items-center gap-3">
             <div className="text-center px-3 py-1.5 rounded-xl bg-card border">
               <p className="text-lg font-bold text-primary">{students.length}</p>
-              <p className="text-[10px] text-muted-foreground uppercase font-semibold">Total Students</p>
+              <p className="text-[10px] text-muted-foreground uppercase font-semibold">
+                Total Students
+              </p>
             </div>
             <div className="text-center px-3 py-1.5 rounded-xl bg-card border">
               <p className="text-lg font-bold text-emerald-600">{DEMO_TEACHERS.length}</p>
@@ -262,7 +303,8 @@ function TimetableGroupPage() {
                   <div>
                     <h3 className="font-semibold text-base">Class Schedule</h3>
                     <p className="text-xs text-muted-foreground">
-                      Uploaded by {timetableRecord.uploaded_by_name} ({timetableRecord.uploaded_by_role}) on{" "}
+                      Uploaded by {timetableRecord.uploaded_by_name} (
+                      {timetableRecord.uploaded_by_role}) on{" "}
                       {new Date(timetableRecord.updated_at).toLocaleDateString()}
                     </p>
                   </div>
@@ -313,7 +355,10 @@ function TimetableGroupPage() {
                           {m.sender_role}
                         </Badge>
                         <span className="text-[10px] text-muted-foreground">
-                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(m.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                       </div>
                       <div className="bg-muted/60 p-3 rounded-xl rounded-tl-none text-xs max-w-lg">
@@ -354,10 +399,14 @@ function TimetableGroupPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {students.map((st) => (
-                  <div key={st.id} className="flex items-center gap-3 p-3 rounded-xl border bg-card">
+                  <div
+                    key={st.id}
+                    className="flex items-center gap-3 p-3 rounded-xl border bg-card"
+                  >
                     <Avatar className="size-9">
                       <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                        {st.first_name[0]}{st.last_name[0]}
+                        {st.first_name[0]}
+                        {st.last_name[0]}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">

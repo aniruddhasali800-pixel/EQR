@@ -101,7 +101,6 @@ function SidebarBody({ onNavigate }: { onNavigate?: (() => void) | undefined }) 
             </AvatarFallback>
           </Avatar>
 
-
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-sidebar-foreground">
               {displayName(profile)}
@@ -166,7 +165,9 @@ export function AppShell({
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-semibold sm:text-xl">{title}</h1>
             {description ? (
-              <p className="hidden truncate text-sm text-muted-foreground sm:block">{description}</p>
+              <p className="hidden truncate text-sm text-muted-foreground sm:block">
+                {description}
+              </p>
             ) : null}
           </div>
 

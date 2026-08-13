@@ -25,7 +25,8 @@ export const Route = createFileRoute("/_authenticated/admin")({
       { title: "Administration — Campus ERP" },
       {
         name: "description",
-        content: "Create departments, subjects and class sections that power timetables and attendance.",
+        content:
+          "Create departments, subjects and class sections that power timetables and attendance.",
       },
       { property: "og:title", content: "Administration — Campus ERP" },
       {
@@ -45,7 +46,10 @@ function AdminPage() {
   const departments = useQuery({
     queryKey: ["departments"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("departments").select("id, name, code").order("name");
+      const { data, error } = await supabase
+        .from("departments")
+        .select("id, name, code")
+        .order("name");
       if (error) throw error;
       return data ?? [];
     },
@@ -78,7 +82,9 @@ function AdminPage() {
   const createDepartment = useMutation({
     mutationFn: async (form: FormData) => {
       const name = String(form.get("name") ?? "").trim();
-      const code = String(form.get("code") ?? "").trim().toUpperCase();
+      const code = String(form.get("code") ?? "")
+        .trim()
+        .toUpperCase();
       if (!name || !code) throw new Error("Name and code are required");
       const { error } = await supabase.from("departments").insert({ name, code });
       if (error) throw error;
@@ -93,10 +99,13 @@ function AdminPage() {
   const createSubject = useMutation({
     mutationFn: async (form: FormData) => {
       const name = String(form.get("name") ?? "").trim();
-      const code = String(form.get("code") ?? "").trim().toUpperCase();
+      const code = String(form.get("code") ?? "")
+        .trim()
+        .toUpperCase();
       const departmentId = String(form.get("department_id") ?? "");
       const semester = Number(form.get("semester"));
-      if (!name || !code || !departmentId) throw new Error("Name, code and department are required");
+      if (!name || !code || !departmentId)
+        throw new Error("Name, code and department are required");
       const { error } = await supabase.from("subjects").insert({
         name,
         code,
@@ -116,7 +125,9 @@ function AdminPage() {
   const createSection = useMutation({
     mutationFn: async (form: FormData) => {
       const name = String(form.get("name") ?? "").trim();
-      const section = String(form.get("section") ?? "").trim().toUpperCase();
+      const section = String(form.get("section") ?? "")
+        .trim()
+        .toUpperCase();
       const departmentId = String(form.get("department_id") ?? "");
       const semester = Number(form.get("semester"));
       if (!name || !section || !departmentId) throw new Error("All fields are required");
@@ -182,7 +193,13 @@ function AdminPage() {
             <h2 className="font-display font-semibold">New department</h2>
             <div className="space-y-1.5">
               <Label htmlFor="dept-name">Name</Label>
-              <Input id="dept-name" name="name" required maxLength={80} placeholder="Computer Science" />
+              <Input
+                id="dept-name"
+                name="name"
+                required
+                maxLength={80}
+                placeholder="Computer Science"
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dept-code">Code</Label>
@@ -273,7 +290,10 @@ function AdminPage() {
               </div>
             ) : (
               (subjects.data ?? []).map((subject) => (
-                <div key={subject.id} className="surface-card flex items-center justify-between p-4">
+                <div
+                  key={subject.id}
+                  className="surface-card flex items-center justify-between p-4"
+                >
                   <div>
                     <p className="font-medium">{subject.name}</p>
                     <p className="text-sm text-muted-foreground">
@@ -348,7 +368,10 @@ function AdminPage() {
               </div>
             ) : (
               (sections.data ?? []).map((section) => (
-                <div key={section.id} className="surface-card flex items-center justify-between p-4">
+                <div
+                  key={section.id}
+                  className="surface-card flex items-center justify-between p-4"
+                >
                   <div>
                     <p className="font-medium">{section.name}</p>
                     <p className="text-sm text-muted-foreground">

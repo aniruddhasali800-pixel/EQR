@@ -21,7 +21,6 @@ export type LocalUser = {
   created_at: string;
 };
 
-
 export type LocalSession = {
   user_id: string;
   token: string;
@@ -188,7 +187,7 @@ export const localAuth = {
       super_admin: { first: "Demo", last: "Admin", email: "admin@campus.demo" },
     };
 
-    const info = demoEmails[role] ?? demoEmails.student!;
+    const info = demoEmails[role] ?? demoEmails["student"]!;
     const users = this.getUsers();
     let user = users.find((u) => u.email === info.email);
 
@@ -237,7 +236,9 @@ export const localAuth = {
   /** Update user profile (name, phone, address, photo_url) */
   updateUserProfile(
     userId: string,
-    updates: Partial<Pick<LocalUser, "first_name" | "last_name" | "phone" | "address" | "photo_url">>,
+    updates: Partial<
+      Pick<LocalUser, "first_name" | "last_name" | "phone" | "address" | "photo_url">
+    >,
   ): LocalUser | null {
     const users = this.getUsers();
     const index = users.findIndex((u) => u.id === userId);

@@ -2,15 +2,15 @@
 
 A PWA is a website that users can:
 
- Open in Chrome, Edge, or Safari.
+Open in Chrome, Edge, or Safari.
 
- Install to the phone's home screen with an app icon.
+Install to the phone's home screen with an app icon.
 
- Launch like a normal app without opening the browser each time.
+Launch like a normal app without opening the browser each time.
 
- Receive updates from the server automatically.
+Receive updates from the server automatically.
 
- Use offline for selected features through service workers (where appropriate).
+Use offline for selected features through service workers (where appropriate).
 
 This approach means you maintain one codebase instead of separate website and mobile app code.
 
@@ -68,29 +68,29 @@ This gives you a mobile-app-like experience without maintaining separate Flutter
 
 I also recommend expanding your AI prompt so the coding agent builds the application as a production-grade installable PWA rather than just a normal responsive website. The prompt should instruct it to:
 
- Build a fully installable Progressive Web App.
+Build a fully installable Progressive Web App.
 
- Configure manifest.json with app name, icons, splash screen, theme color, orientation, and shortcuts.
+Configure manifest.json with app name, icons, splash screen, theme color, orientation, and shortcuts.
 
- Implement a service worker for offline caching of static assets and selected pages.
+Implement a service worker for offline caching of static assets and selected pages.
 
- Display an "Install App" prompt when supported by the browser.
+Display an "Install App" prompt when supported by the browser.
 
- Allow launching from the home-screen icon without the browser address bar.
+Allow launching from the home-screen icon without the browser address bar.
 
- Support Android, iPhone, Windows, macOS, and tablets from the same codebase.
+Support Android, iPhone, Windows, macOS, and tablets from the same codebase.
 
- Keep all business logic in the backend so web and installed PWA always stay synchronized.
+Keep all business logic in the backend so web and installed PWA always stay synchronized.
 
- Use responsive layouts so every page works well on mobile, tablet, and desktop.
+Use responsive layouts so every page works well on mobile, tablet, and desktop.
 
- Include complete modules for authentication, attendance, timetable, QR generation, QR scanning, student management, teacher management, reports, analytics, notifications, and role-based dashboards.
+Include complete modules for authentication, attendance, timetable, QR generation, QR scanning, student management, teacher management, reports, analytics, notifications, and role-based dashboards.
 
- Generate PDF and Excel attendance reports automatically after each lecture.
+Generate PDF and Excel attendance reports automatically after each lecture.
 
- Keep reports editable for 24 hours by authorized teachers or CRs, then automatically lock them.
+Keep reports editable for 24 hours by authorized teachers or CRs, then automatically lock them.
 
- Produce complete documentation, Docker configuration, API documentation, database schema, deployment guide, and installation instructions.
+Produce complete documentation, Docker configuration, API documentation, database schema, deployment guide, and installation instructions.
 
 For the QR system, the prompt should specify that the backend automatically creates a lecture session from the uploaded timetable, generates a secure, time-limited QR code, validates scans on the server, prevents duplicate attendance, and produces attendance reports after the session ends.
 
@@ -100,17 +100,17 @@ Project Goal
 
 Build a web application and mobile application where
 
- Students
+Students
 
- Teachers
+Teachers
 
- HOD
+HOD
 
- Principal
+Principal
 
- Admin
+Admin
 
- CR (Class Representative)
+CR (Class Representative)
 
 can manage everything inside one system.
 
@@ -118,17 +118,17 @@ Technology Stack
 
 Frontend
 
- React.js
+React.js
 
- Next.js
+Next.js
 
- TypeScript
+TypeScript
 
- Tailwind CSS
+Tailwind CSS
 
- Shadcn UI
+Shadcn UI
 
- Framer MotionBackend
+Framer MotionBackend
 
 Node.js
 
@@ -156,13 +156,13 @@ Cloudinary
 
 for
 
- Profile Photos
+Profile Photos
 
- Documents
+Documents
 
- Assignments
+Assignments
 
- Videos
+Videos
 
 Authentication
 
@@ -174,13 +174,13 @@ Firebase Authentication
 
 Supports
 
- Email
+Email
 
- Phone OTP
+Phone OTP
 
- Google Login
+Google Login
 
- Microsoft Login
+Microsoft Login
 
 Notifications
 
@@ -208,33 +208,33 @@ Admin
 
 Can
 
- Create college
+Create college
 
- Create departments
+Create departments
 
- Add teachers
+Add teachers
 
- Add students
+Add students
 
- Upload timetable
+Upload timetable
 
- Generate reports
+Generate reports
 
- Create semesters
+Create semesters
 
- Manage permissions
+Manage permissions
 
 Principal
 
 Can view
 
- Attendance
+Attendance
 
- Teacher reports
+Teacher reports
 
- Student reports
+Student reports
 
- Analytics
+Analytics
 
 HOD
 
@@ -698,7 +698,7 @@ IDCards
 
 Devices
 
-AuditLogs                   Students
+AuditLogs Students
 
                       │
 
@@ -768,47 +768,47 @@ GET /analyticsDevelopment Roadmap
 
 Phase 1
 
- Authentication
+Authentication
 
- Student management
+Student management
 
- Teacher management
+Teacher management
 
- Department management
+Department management
 
- Timetable upload
+Timetable upload
 
 Phase 2
 
- QR attendance
+QR attendance
 
- Reports
+Reports
 
- Dashboard
+Dashboard
 
- Notifications
+Notifications
 
 Phase 3
 
- Assignments
+Assignments
 
- Notes
+Notes
 
- Video lectures
+Video lectures
 
- Internal messaging
+Internal messaging
 
 Phase 4
 
- AI analytics
+AI analytics
 
- Face verification
+Face verification
 
- Parent portal
+Parent portal
 
- Mobile app
+Mobile app
 
- Offline attendance sync
+Offline attendance sync
 
 This project was built with [Lovable](https://lovable.dev).
 

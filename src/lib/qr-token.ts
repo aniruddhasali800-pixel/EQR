@@ -50,7 +50,8 @@ export const TOKEN_TOLERANCE_SECONDS = 20;
 
 export async function verifyToken(secret: string, raw: string) {
   const parsed = parseToken(raw);
-  if (!parsed) return { ok: false as const, reason: "This is not a Campus ERP attendance QR code." };
+  if (!parsed)
+    return { ok: false as const, reason: "This is not a Campus ERP attendance QR code." };
   const drift = Math.abs(currentTick() - parsed.tick);
   if (drift > TOKEN_TOLERANCE_SECONDS) {
     return { ok: false as const, reason: "This QR code has expired. Scan the live code again." };
@@ -73,4 +74,3 @@ export function parseStudentToken(raw: string) {
   }
   return null;
 }
-

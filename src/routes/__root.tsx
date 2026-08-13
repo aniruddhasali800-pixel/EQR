@@ -18,9 +18,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ClerkProvider } from "@clerk/clerk-react";
 
 const CLERK_PUBLISHABLE_KEY =
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
+  import.meta.env["VITE_CLERK_PUBLISHABLE_KEY"] ||
   "pk_test_dG91Y2hlZC1iYXQtNzAuY2xlcmsuYWNjb3VudHMuZGV2JA";
-
 
 function NotFoundComponent() {
   return (
@@ -101,11 +100,31 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "Campus ERP — College ERP & Smart QR Attendance" },
       { property: "og:title", content: "Campus ERP — College ERP & Smart QR Attendance" },
       { name: "twitter:title", content: "Campus ERP — College ERP & Smart QR Attendance" },
-      { name: "description", content: "Installable college ERP with secure rotating QR attendance, timetables, role dashboards and automatic PDF/Excel reports." },
-      { property: "og:description", content: "Installable college ERP with secure rotating QR attendance, timetables, role dashboards and automatic PDF/Excel reports." },
-      { name: "twitter:description", content: "Installable college ERP with secure rotating QR attendance, timetables, role dashboards and automatic PDF/Excel reports." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/d0197c94-2582-4fce-bccf-46a9f8414438/id-preview-2bcd2d42--83e2b39a-78be-422a-aa0b-622a27977d25.lovable.app-1785911944809.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/d0197c94-2582-4fce-bccf-46a9f8414438/id-preview-2bcd2d42--83e2b39a-78be-422a-aa0b-622a27977d25.lovable.app-1785911944809.png" },
+      {
+        name: "description",
+        content:
+          "Installable college ERP with secure rotating QR attendance, timetables, role dashboards and automatic PDF/Excel reports.",
+      },
+      {
+        property: "og:description",
+        content:
+          "Installable college ERP with secure rotating QR attendance, timetables, role dashboards and automatic PDF/Excel reports.",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Installable college ERP with secure rotating QR attendance, timetables, role dashboards and automatic PDF/Excel reports.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/d0197c94-2582-4fce-bccf-46a9f8414438/id-preview-2bcd2d42--83e2b39a-78be-422a-aa0b-622a27977d25.lovable.app-1785911944809.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/d0197c94-2582-4fce-bccf-46a9f8414438/id-preview-2bcd2d42--83e2b39a-78be-422a-aa0b-622a27977d25.lovable.app-1785911944809.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -160,5 +179,3 @@ function RootComponent() {
     </ClerkProvider>
   );
 }
-
-

@@ -166,7 +166,9 @@ function SettingsPage() {
             <div className="space-y-1.5">
               <Label htmlFor="email">Email Address</Label>
               <Input id="email" value={profile?.email || ""} disabled className="bg-muted" />
-              <p className="text-[11px] text-muted-foreground">Email is linked to your account identity.</p>
+              <p className="text-[11px] text-muted-foreground">
+                Email is linked to your account identity.
+              </p>
             </div>
           </div>
 
