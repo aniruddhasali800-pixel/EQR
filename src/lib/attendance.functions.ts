@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { parseStudentToken, parseToken, verifyToken } from "@/lib/qr-token";
+import { parseStudentToken, parseToken } from "@/lib/qr-token";
 import { localStore } from "@/lib/local-store";
 import { saveAttendanceRecord } from "@/integrations/appwrite/service";
 
@@ -27,7 +27,7 @@ export type MarkResult = {
 
 /**
  * Universal Client & Server Attendance Processor.
- * Works seamlessly in Local Mode, Supabase, and Appwrite Cloud environments.
+ * Automatically resolves active session IDs, saves to local store & Appwrite cloud.
  */
 export async function processClientAttendanceScan({
   token,
@@ -42,15 +42,23 @@ export async function processClientAttendanceScan({
   const studentToken = parseStudentToken(trimmed);
   const sessionToken = parseToken(trimmed);
 
+  // Automatically detect the currently active session from local storage if available
+  const activeSessions = localStore.getSessions().filter((s) => s.is_active);
+  const activeSession = activeSessions[activeSessions.length - 1];
+
   let targetStudentId = userId || "demo-student-1";
-  let targetSessionId = sessionId || "sess_local_active";
+  let targetSessionId = sessionId || activeSession?.id || "sess_local_active";
   let isStaffApproval = false;
 
   if (studentToken) {
-    // Teacher or CR scanning a student's personal approval QR
+    // Teacher or CR scanning a student's personal approval QR code
     isStaffApproval = true;
     targetStudentId = studentToken.userId;
-    if (sessionId) targetSessionId = sessionId;
+    if (sessionId) {
+      targetSessionId = sessionId;
+    } else if (activeSession) {
+      targetSessionId = activeSession.id;
+    }
   } else if (sessionToken) {
     // Student or staff scanning lecture session QR code
     targetSessionId = sessionToken.sessionId;
@@ -62,6 +70,16 @@ export async function processClientAttendanceScan({
     targetStudentId,
     "Approved (Auto-Scanned)",
   );
+
+  // Ensure record is attached to the active session if different
+  if (activeSession && activeSession.id !== targetSessionId) {
+    localStore.addOrUpdateRecord(activeSession.id, targetStudentId, "Approved (Auto-Scanned)");
+  }
+
+  // Ensure universal fallback entry exists
+  if (targetSessionId !== "sess_local_active") {
+    localStore.addOrUpdateRecord("sess_local_active", targetStudentId, "Approved (Auto-Scanned)");
+  }
 
   // 2. Fetch or create student profile metadata
   const profiles = localStore.getProfiles();
@@ -104,6 +122,15 @@ export async function processClientAttendanceScan({
     markedAt: record.marked_at,
     status: "Auto-Approved",
   }).catch((err) => console.warn("[Appwrite Sync]", err));
+
+  // Dispatch custom browser event to notify all components to reload present lists instantly
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("cerp_attendance_updated", {
+        detail: { sessionId: targetSessionId, studentId: targetStudentId },
+      }),
+    );
+  }
 
   return {
     alreadyMarked: false,

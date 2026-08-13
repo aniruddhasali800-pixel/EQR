@@ -201,10 +201,21 @@ function AttendancePage() {
     };
   }, [session]);
 
+  // Listen for real-time attendance scan updates
+  useEffect(() => {
+    function handleUpdate() {
+      void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("cerp_attendance_updated", handleUpdate);
+      return () => window.removeEventListener("cerp_attendance_updated", handleUpdate);
+    }
+  }, [queryClient]);
+
   const present = useQuery({
     queryKey: ["attendance-present", session?.id],
     enabled: Boolean(session?.id),
-    refetchInterval: 2000,
+    refetchInterval: 1500,
     queryFn: async () => {
       try {
         const { data: records, error } = await supabase
@@ -241,34 +252,49 @@ function AttendancePage() {
         // Fallback to localStore
       }
 
-      // Offline local store records fallback
+      // Offline & Local Storage fallback: gather all records for current session or marked during session active window
       const { localStore } = await import("@/lib/local-store");
-      const localRecords = localStore
-        .getRecords()
-        .filter((r) => r.session_id === session!.id || r.session_id === "sess_local_active");
+      const sessionStartTime = session?.started_at ? new Date(session.started_at).getTime() : 0;
+
+      const localRecords = localStore.getRecords().filter((r) => {
+        if (r.session_id === session!.id || r.session_id === "sess_local_active") return true;
+        if (sessionStartTime > 0) {
+          const markedTime = new Date(r.marked_at).getTime();
+          return markedTime >= sessionStartTime - 30000;
+        }
+        return false;
+      });
+
       const profiles = localStore.getProfiles();
       const details = localStore.getStudentDetails();
 
-      const allRows = localRecords.map((r) => {
-        const p = profiles.find((prof) => prof.id === r.student_id) || {
-          first_name: "Rahul",
-          last_name: "Sharma",
-          email: "rahul.sharma@campus.edu",
-          phone: "+91 9876543210",
-        };
-        const d = details.find((det) => det.user_id === r.student_id) || {
-          roll_number: "CS-2024-001",
-        };
-        return {
-          id: r.student_id,
-          markedAt: r.marked_at,
-          status: r.status || "Approved",
-          name: `${p.first_name} ${p.last_name}`,
-          roll: d.roll_number,
-          email: p.email,
-          phone: p.phone ?? "—",
-        };
-      });
+      const seenIds = new Set<string>();
+      const allRows = localRecords
+        .filter((r) => {
+          if (seenIds.has(r.student_id)) return false;
+          seenIds.add(r.student_id);
+          return true;
+        })
+        .map((r) => {
+          const p = profiles.find((prof) => prof.id === r.student_id) || {
+            first_name: "Student",
+            last_name: "Scanned",
+            email: "student@campus.edu",
+            phone: "+91 98765 43210",
+          };
+          const d = details.find((det) => det.user_id === r.student_id) || {
+            roll_number: "CS-2024-001",
+          };
+          return {
+            id: r.student_id,
+            markedAt: r.marked_at,
+            status: r.status || "Approved",
+            name: `${p.first_name} ${p.last_name}`.trim(),
+            roll: d.roll_number,
+            email: p.email,
+            phone: p.phone ?? "—",
+          };
+        });
 
       // Data Isolation: Students only see their own record
       if (!isStaff && user?.id) {
