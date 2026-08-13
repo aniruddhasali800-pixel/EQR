@@ -3,7 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  Check,
+  Download,
   FileSpreadsheet,
+  FileText,
   Loader2,
   Printer,
   QrCode,
@@ -12,16 +15,32 @@ import {
   Share2,
   Square,
   Users,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { QrScannerDialog } from "@/components/QrScannerDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { exportToExcel, exportToPdf, shareAttendance } from "@/lib/export-utils";
+import {
+  autoSaveAndShareReport,
+  exportToExcel,
+  exportToPdf,
+  shareAttendance,
+  type SessionHeaderInfo,
+} from "@/lib/export-utils";
 import { notifyTeacherFromCR } from "@/lib/notifications";
+import { saveAttendanceSession } from "@/integrations/appwrite/service";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -72,6 +91,12 @@ function AttendancePage() {
   const [token, setToken] = useState("");
   const [starting, setStarting] = useState(false);
   const [approvalScannerOpen, setApprovalScannerOpen] = useState(false);
+
+  // CR Name and session end report state
+  const [crName, setCrName] = useState("");
+  const [showEndReportDialog, setShowEndReportDialog] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportGenerated, setReportGenerated] = useState(false);
 
   const sections = useQuery({
     queryKey: ["class-sections-all"],
@@ -138,6 +163,11 @@ function AttendancePage() {
   const selectedSection = useMemo(
     () => sections.data?.find((row) => row.id === sectionId),
     [sections.data, sectionId],
+  );
+
+  const selectedSubject = useMemo(
+    () => subjects.data?.find((row) => row.id === subjectId),
+    [subjects.data, subjectId],
   );
 
   const filteredSubjects = useMemo(() => {
@@ -292,17 +322,95 @@ function AttendancePage() {
 
   async function endSession() {
     if (!session) return;
-    const { error } = await supabase
-      .from("attendance_sessions")
-      .update({ is_active: false, ended_at: new Date().toISOString() })
-      .eq("id", session.id);
-    if (error) {
-      toast.error(error.message);
-      return;
+
+    // Show report generation dialog instead of immediately closing
+    setShowEndReportDialog(true);
+  }
+
+  function buildHeaderInfo(): SessionHeaderInfo {
+    return {
+      teacherName: displayName(profile, "Teacher"),
+      crName: crName.trim() || "N/A",
+      subjectName: selectedSubject?.name || "Lecture",
+      subjectCode: selectedSubject?.code,
+      className: selectedSection?.name
+        ? `${selectedSection.name} · Sem ${selectedSection.semester}${selectedSection.section}`
+        : "Class",
+      startedAt: session?.started_at || new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+    };
+  }
+
+  function buildExportRows() {
+    return (present.data ?? []).map((p) => ({
+      name: p.name,
+      roll: p.roll,
+      email: p.email,
+      phone: p.phone,
+      className: selectedSection?.name ?? null,
+      subject: selectedSubject?.name ?? null,
+      markedAt: p.markedAt,
+      status: p.status || "Approved",
+    }));
+  }
+
+  async function confirmEndAndGenerateReport() {
+    if (!session) return;
+    setGeneratingReport(true);
+
+    const headerInfo = buildHeaderInfo();
+    const exportRows = buildExportRows();
+
+    try {
+      // 1. Generate and download Excel + Word reports automatically
+      const result = await autoSaveAndShareReport(exportRows, headerInfo, session.id);
+
+      // 2. Save session summary to Appwrite
+      await saveAttendanceSession({
+        sessionId: session.id,
+        teacherName: headerInfo.teacherName,
+        crName: headerInfo.crName,
+        subjectName: headerInfo.subjectName,
+        className: headerInfo.className,
+        startedAt: headerInfo.startedAt,
+        endedAt: headerInfo.endedAt,
+        totalPresent: exportRows.length,
+      });
+
+      // 3. Close the session in Supabase / LocalStore
+      const { error } = await supabase
+        .from("attendance_sessions")
+        .update({ is_active: false, ended_at: new Date().toISOString() })
+        .eq("id", session.id);
+
+      if (error) {
+        // Fallback to local store
+        const { localStore } = await import("@/lib/local-store");
+        localStore.endSession(session.id);
+      }
+
+      setReportGenerated(true);
+      setGeneratingReport(false);
+
+      toast.success("📋 Attendance reports generated and downloaded!", {
+        description: result.appwriteWordUrl
+          ? "Files also saved to Appwrite cloud storage."
+          : "Files saved to your device.",
+        duration: 5000,
+      });
+    } catch (err) {
+      console.error("Report generation error:", err);
+      setGeneratingReport(false);
+      toast.error("Failed to generate report. Session still active.");
     }
+  }
+
+  function closeReportDialogAndReset() {
+    setShowEndReportDialog(false);
+    setReportGenerated(false);
     setSession(null);
+    setCrName("");
     void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
-    toast.success("Session closed.");
   }
 
   if (!isStaff) {
@@ -393,6 +501,18 @@ function AttendancePage() {
             )}
           </div>
 
+          {/* CR Name Input */}
+          <div className="space-y-2">
+            <Label htmlFor="crName">CR (Class Representative) Name</Label>
+            <Input
+              id="crName"
+              value={crName}
+              onChange={(e) => setCrName(e.target.value)}
+              placeholder="Enter CR name (optional)"
+              disabled={Boolean(session)}
+            />
+          </div>
+
           {session ? (
             <div className="space-y-2">
               <Button
@@ -407,7 +527,7 @@ function AttendancePage() {
                 className="w-full gap-2"
                 onClick={() => void endSession()}
               >
-                <Square className="size-4" /> End session
+                <Square className="size-4" /> Stop QR & Generate Report
               </Button>
             </div>
           ) : (
@@ -468,6 +588,151 @@ function AttendancePage() {
         description="Scan a student's personal approval QR code or enter their token to approve their attendance."
       />
 
+      {/* End Session Report Dialog */}
+      <Dialog
+        open={showEndReportDialog}
+        onOpenChange={(open) => {
+          if (!open && reportGenerated) {
+            closeReportDialogAndReset();
+          } else if (!open && !generatingReport) {
+            setShowEndReportDialog(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="size-5 text-primary" />
+              {reportGenerated ? "Reports Generated!" : "End Session & Generate Reports"}
+            </DialogTitle>
+            <DialogDescription>
+              {reportGenerated
+                ? "Attendance reports have been downloaded to your device."
+                : "Confirm session details. Excel and Word reports will be auto-generated and saved."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!reportGenerated ? (
+            <div className="space-y-4 pt-2">
+              {/* Session Summary */}
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">👨‍🏫 Teacher:</span>
+                  <span className="font-medium">{displayName(profile, "Teacher")}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">📚 Subject:</span>
+                  <span className="font-medium">
+                    {selectedSubject?.name || "Lecture"}
+                    {selectedSubject?.code ? ` (${selectedSubject.code})` : ""}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">🏫 Class:</span>
+                  <span className="font-medium">
+                    {selectedSection?.name || "Class"} · Sem {selectedSection?.semester || "—"}
+                    {selectedSection?.section || ""}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">🕐 Started:</span>
+                  <span className="font-medium">
+                    {session?.started_at ? new Date(session.started_at).toLocaleString() : "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">👥 Present:</span>
+                  <span className="font-semibold text-emerald-600">
+                    {present.data?.length ?? 0} students
+                  </span>
+                </div>
+              </div>
+
+              {/* CR Name Input (editable before confirm) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="crNameReport">🎓 CR (Class Representative) Name</Label>
+                <Input
+                  id="crNameReport"
+                  value={crName}
+                  onChange={(e) => setCrName(e.target.value)}
+                  placeholder="Enter CR name for the report header"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-1.5"
+                  onClick={() => setShowEndReportDialog(false)}
+                  disabled={generatingReport}
+                >
+                  <X className="size-4" /> Cancel
+                </Button>
+                <Button
+                  className="flex-1 gap-1.5"
+                  onClick={() => void confirmEndAndGenerateReport()}
+                  disabled={generatingReport}
+                >
+                  {generatingReport ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Download className="size-4" />
+                  )}
+                  {generatingReport ? "Generating..." : "Stop & Download Reports"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              {/* Success State */}
+              <div className="flex flex-col items-center gap-3 py-4">
+                <div className="flex size-14 items-center justify-center rounded-full bg-emerald-100">
+                  <Check className="size-7 text-emerald-600" />
+                </div>
+                <p className="text-center text-sm text-muted-foreground">
+                  Excel (.csv) and Word (.doc) reports have been downloaded to your device
+                  automatically.
+                </p>
+              </div>
+
+              {/* Quick Share Actions */}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-1.5 text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                  onClick={() => {
+                    const headerInfo = buildHeaderInfo();
+                    void shareAttendance(
+                      buildExportRows(),
+                      `Class ${headerInfo.className}`,
+                      headerInfo,
+                    );
+                  }}
+                >
+                  <Share2 className="size-3.5 text-emerald-600" /> Share to WhatsApp
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 gap-1.5 text-xs"
+                  onClick={() => {
+                    const headerInfo = buildHeaderInfo();
+                    exportToPdf(buildExportRows(), `Class ${headerInfo.className}`, headerInfo);
+                  }}
+                >
+                  <Printer className="size-3.5 text-blue-600" /> Print PDF
+                </Button>
+              </div>
+
+              <Button className="w-full gap-1.5" onClick={closeReportDialogAndReset}>
+                <Check className="size-4" /> Done
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {session ? (
         <section className="mt-6 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -483,21 +748,14 @@ function AttendancePage() {
                   variant="outline"
                   size="sm"
                   className="gap-1.5 text-xs"
-                  onClick={() =>
+                  onClick={() => {
+                    const headerInfo = buildHeaderInfo();
                     exportToExcel(
-                      (present.data ?? []).map((p) => ({
-                        name: p.name,
-                        roll: p.roll,
-                        email: p.email,
-                        phone: p.phone,
-                        className: selectedSection?.name ?? null,
-                        subject: subjects.data?.find((s) => s.id === subjectId)?.name ?? null,
-                        markedAt: p.markedAt,
-                        status: p.status || "Approved",
-                      })),
+                      buildExportRows(),
                       selectedSection?.name ? `Attendance_${selectedSection.name}` : "Attendance",
-                    )
-                  }
+                      headerInfo,
+                    );
+                  }}
                 >
                   <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel (.csv)
                 </Button>
@@ -506,23 +764,16 @@ function AttendancePage() {
                   variant="outline"
                   size="sm"
                   className="gap-1.5 text-xs"
-                  onClick={() =>
+                  onClick={() => {
+                    const headerInfo = buildHeaderInfo();
                     exportToPdf(
-                      (present.data ?? []).map((p) => ({
-                        name: p.name,
-                        roll: p.roll,
-                        email: p.email,
-                        phone: p.phone,
-                        className: selectedSection?.name ?? null,
-                        subject: subjects.data?.find((s) => s.id === subjectId)?.name ?? null,
-                        markedAt: p.markedAt,
-                        status: p.status || "Approved",
-                      })),
+                      buildExportRows(),
                       selectedSection?.name
                         ? `Class ${selectedSection.name}`
                         : "Lecture Attendance",
-                    )
-                  }
+                      headerInfo,
+                    );
+                  }}
                 >
                   <Printer className="size-3.5 text-blue-600" /> Export PDF / Print
                 </Button>
@@ -531,20 +782,16 @@ function AttendancePage() {
                   variant="outline"
                   size="sm"
                   className="gap-1.5 text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
-                  onClick={() =>
-                    shareAttendance(
-                      (present.data ?? []).map((p) => ({
-                        name: p.name,
-                        roll: p.roll,
-                        email: p.email,
-                        phone: p.phone,
-                        markedAt: p.markedAt,
-                      })),
+                  onClick={() => {
+                    const headerInfo = buildHeaderInfo();
+                    void shareAttendance(
+                      buildExportRows(),
                       selectedSection?.name
                         ? `Class ${selectedSection.name}`
                         : "Lecture Attendance",
-                    )
-                  }
+                      headerInfo,
+                    );
+                  }}
                 >
                   <Share2 className="size-3.5 text-emerald-600" /> Share to WhatsApp
                 </Button>

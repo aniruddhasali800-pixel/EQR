@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { CheckCircle2, KeyRound, Loader2, RefreshCw, ScanLine, XCircle } from "lucide-react";
-import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { markAttendanceByToken, type MarkResult } from "@/lib/attendance.functions";
+import { processClientAttendanceScan, type MarkResult } from "@/lib/attendance.functions";
+import { useAuth } from "@/lib/auth";
 
 export function QrScannerDialog({
   open,
@@ -26,7 +27,7 @@ export function QrScannerDialog({
   title?: string;
   description?: string;
 }) {
-  const mark = useServerFn(markAttendanceByToken);
+  const { user } = useAuth();
   const containerId = "campus-erp-qr-reader";
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isStartingRef = useRef(false);
@@ -60,9 +61,17 @@ export function QrScannerDialog({
     }
 
     try {
-      const data = await mark({ data: { token: decodedToken.trim(), sessionId } });
+      const data = await processClientAttendanceScan({
+        token: decodedToken.trim(),
+        sessionId,
+        userId: user?.id,
+      });
+
       setResult(data);
       setStatus("done");
+      toast.success("Scan Complete! Attendance Approved.", {
+        description: `${data.student.name} (${data.student.rollNumber || "Student"}) automatically added to attendance sheet.`,
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not process QR approval.");
       setStatus("error");
@@ -151,7 +160,7 @@ export function QrScannerDialog({
         void stopAndClear();
       }
     };
-  }, [open, mode, retryCount, mark, sessionId]);
+  }, [open, mode, retryCount, sessionId, user?.id]);
 
   function resetScanner() {
     setManualToken("");
@@ -175,17 +184,13 @@ export function QrScannerDialog({
 
         {status === "done" && result ? (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 rounded-lg bg-primary/10 p-3 text-primary">
-              <CheckCircle2 className="size-5 shrink-0" />
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-emerald-800">
+              <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
               <div>
-                <p className="text-sm font-medium">
-                  {result.alreadyMarked
-                    ? "Attendance already approved & recorded"
-                    : "Attendance approved & recorded"}
+                <p className="text-sm font-semibold">Scan Complete! Attendance Approved</p>
+                <p className="text-xs text-emerald-700">
+                  {result.student.name} was automatically added to database & storage.
                 </p>
-                {result.approvedBy ? (
-                  <p className="text-xs text-primary/80">Approved via {result.approvedBy}</p>
-                ) : null}
               </div>
             </div>
             <dl className="space-y-2 text-sm">
@@ -201,8 +206,11 @@ export function QrScannerDialog({
               <Button variant="outline" className="flex-1 gap-1.5" onClick={resetScanner}>
                 <RefreshCw className="size-4" /> Scan another
               </Button>
-              <Button className="flex-1" onClick={() => onOpenChange(false)}>
-                Done
+              <Button
+                className="flex-1 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => onOpenChange(false)}
+              >
+                Accept & Confirm
               </Button>
             </div>
           </div>
@@ -247,7 +255,8 @@ export function QrScannerDialog({
                 />
                 {status === "submitting" ? (
                   <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" /> Verifying approval…
+                    <Loader2 className="size-4 animate-spin text-primary" /> Verifying & Approving
+                    Student...
                   </p>
                 ) : null}
                 {status === "error" && message ? (

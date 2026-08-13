@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { User, Phone, MapPin, Camera, Save, Check } from "lucide-react";
+import { User, Phone, MapPin, Camera, Save, Check, Cloud, Database } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { displayName, useAuth } from "@/lib/auth";
 import { localAuth } from "@/lib/local-auth";
 import { toast } from "sonner";
+import {
+  getAppwriteConfig,
+  saveAppwriteConfig,
+  type AppwriteConfig,
+} from "@/integrations/appwrite/client";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -33,6 +38,15 @@ function SettingsPage() {
   const [address, setAddress] = useState(profile?.address || "");
   const [photoUrl, setPhotoUrl] = useState(profile?.photo_url || "");
   const [saving, setSaving] = useState(false);
+
+  // Appwrite config state
+  const appwriteConfig = getAppwriteConfig();
+  const [awEndpoint, setAwEndpoint] = useState(appwriteConfig.endpoint);
+  const [awProjectId, setAwProjectId] = useState(appwriteConfig.projectId);
+  const [awApiKey, setAwApiKey] = useState(appwriteConfig.apiKey);
+  const [awDatabaseId, setAwDatabaseId] = useState(appwriteConfig.databaseId);
+  const [awBucketId, setAwBucketId] = useState(appwriteConfig.storageBucketId);
+  const [savingAppwrite, setSavingAppwrite] = useState(false);
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -207,6 +221,92 @@ function SettingsPage() {
                 rows={3}
               />
             </div>
+          </div>
+
+          {/* Appwrite Database & Storage Settings */}
+          <div className="surface-card p-6 rounded-2xl border space-y-4">
+            <div className="flex items-center gap-2 border-b pb-3">
+              <Cloud className="size-4 text-blue-600" />
+              <h3 className="font-semibold text-sm">Appwrite Database & Storage</h3>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="awEndpoint">Appwrite Endpoint</Label>
+              <Input
+                id="awEndpoint"
+                value={awEndpoint}
+                onChange={(e) => setAwEndpoint(e.target.value)}
+                placeholder="https://cloud.appwrite.io/v1"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="awProjectId">Project ID</Label>
+                <Input
+                  id="awProjectId"
+                  value={awProjectId}
+                  onChange={(e) => setAwProjectId(e.target.value)}
+                  placeholder="your-project-id"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="awDatabaseId">Database ID</Label>
+                <Input
+                  id="awDatabaseId"
+                  value={awDatabaseId}
+                  onChange={(e) => setAwDatabaseId(e.target.value)}
+                  placeholder="campus_erp_db"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="awApiKey">API Key</Label>
+              <Input
+                id="awApiKey"
+                type="password"
+                value={awApiKey}
+                onChange={(e) => setAwApiKey(e.target.value)}
+                placeholder="standard_baf13..."
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Your Appwrite API key for storing attendance data and report files.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="awBucketId">Storage Bucket ID</Label>
+              <Input
+                id="awBucketId"
+                value={awBucketId}
+                onChange={(e) => setAwBucketId(e.target.value)}
+                placeholder="attendance_reports"
+              />
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={savingAppwrite}
+              onClick={() => {
+                setSavingAppwrite(true);
+                saveAppwriteConfig({
+                  endpoint: awEndpoint.trim(),
+                  projectId: awProjectId.trim(),
+                  apiKey: awApiKey.trim(),
+                  databaseId: awDatabaseId.trim(),
+                  storageBucketId: awBucketId.trim(),
+                });
+                setSavingAppwrite(false);
+                toast.success("Appwrite configuration saved!");
+              }}
+            >
+              <Database className="size-3.5" />
+              Save Appwrite Settings
+            </Button>
           </div>
 
           {/* Action Buttons */}

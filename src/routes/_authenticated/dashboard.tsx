@@ -15,6 +15,7 @@ import {
   HardDrive,
   Filter,
   Layers,
+  Cloud,
 } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
@@ -40,6 +41,7 @@ import { ROLE_LABELS, displayName, useAuth } from "@/lib/auth";
 import { buildStudentToken } from "@/lib/qr-token";
 import { DAY_NAMES, formatTime } from "@/lib/timetable";
 import { localStore } from "@/lib/local-store";
+import { isAppwriteConfigured } from "@/integrations/appwrite/client";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -183,6 +185,14 @@ function Dashboard() {
               >
                 <HardDrive className="size-3 text-emerald-600" /> Local Storage Engine
               </Badge>
+              {isAppwriteConfigured() && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-blue-500/40 text-blue-700 bg-blue-50/50"
+                >
+                  <Cloud className="size-3 text-blue-600" /> Appwrite Cloud
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               {isStaff
