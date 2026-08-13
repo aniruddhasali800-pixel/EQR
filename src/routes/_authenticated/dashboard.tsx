@@ -226,7 +226,12 @@ function Dashboard() {
 
         <QrScannerDialog
           open={scannerOpen}
-          onOpenChange={setScannerOpen}
+          onOpenChange={(open) => {
+            setScannerOpen(open);
+            if (!open && typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("cerp_attendance_updated"));
+            }
+          }}
           title={isStaff ? "Approve Student Attendance" : "Scan attendance QR"}
           description={
             isStaff

@@ -296,11 +296,6 @@ function AttendancePage() {
           };
         });
 
-      // Data Isolation: Students only see their own record
-      if (!isStaff && user?.id) {
-        return allRows.filter((r) => r.id === user.id || r.email === user.email);
-      }
-
       return allRows;
     },
   });
@@ -308,6 +303,16 @@ function AttendancePage() {
   async function startSession() {
     const targetSection = sectionId || sections.data?.[0]?.id || "sec_cs_4a";
     setStarting(true);
+
+    const { localStore } = await import("@/lib/local-store");
+    const localSess = localStore.createSession({
+      class_section_id: targetSection,
+      subject_id: subjectId || null,
+      teacher_id: user?.id || "demo-teacher",
+      is_active: true,
+      secret: `secret_${Date.now()}`,
+      started_at: new Date().toISOString(),
+    });
 
     try {
       const { data, error } = await supabase
@@ -321,7 +326,7 @@ function AttendancePage() {
         .single();
 
       if (!error && data) {
-        setSession(data as ActiveSession);
+        setSession({ ...data, secret: data.secret || localSess.secret } as ActiveSession);
         setStarting(false);
         toast.success("Live QR session started.");
         return;
@@ -330,20 +335,9 @@ function AttendancePage() {
       // Fallback
     }
 
-    // Local Storage session fallback
-    const { localStore } = await import("@/lib/local-store");
-    const newSession = localStore.createSession({
-      class_section_id: targetSection,
-      subject_id: subjectId || null,
-      teacher_id: user?.id || "demo-teacher",
-      is_active: true,
-      secret: `secret_${Date.now()}`,
-      started_at: new Date().toISOString(),
-    });
-
-    setSession(newSession as ActiveSession);
+    setSession(localSess as ActiveSession);
     setStarting(false);
-    toast.success("Live QR session started (Local Mode).");
+    toast.success("Live QR session started.");
   }
 
   async function endSession() {

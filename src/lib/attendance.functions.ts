@@ -4,9 +4,10 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { parseStudentToken, parseToken } from "@/lib/qr-token";
 import { localStore } from "@/lib/local-store";
 import { saveAttendanceRecord } from "@/integrations/appwrite/service";
+import { supabase } from "@/integrations/supabase/client";
 
 const markSchema = z.object({
-  token: z.string().min(1).max(250),
+  token: z.string().min(1).max(500),
   sessionId: z.string().optional(),
 });
 
@@ -26,8 +27,19 @@ export type MarkResult = {
 };
 
 /**
+ * Clean sanitization helper for converting raw scanned tokens into readable names/IDs.
+ */
+function sanitizeIdentifier(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .slice(0, 40);
+}
+
+/**
  * Universal Client & Server Attendance Processor.
- * Automatically resolves active session IDs, saves to local store & Appwrite cloud.
+ * Detects student identity automatically from scanned QR codes, barcodes, or text,
+ * saves to localStore, Supabase, and Appwrite cloud storage.
  */
 export async function processClientAttendanceScan({
   token,
@@ -42,12 +54,12 @@ export async function processClientAttendanceScan({
   const studentToken = parseStudentToken(trimmed);
   const sessionToken = parseToken(trimmed);
 
-  // Automatically detect the currently active session from local storage if available
+  // Automatically detect active session if not provided
   const activeSessions = localStore.getSessions().filter((s) => s.is_active);
   const activeSession = activeSessions[activeSessions.length - 1];
 
-  let targetStudentId = userId || "demo-student-1";
   let targetSessionId = sessionId || activeSession?.id || "sess_local_active";
+  let targetStudentId = "";
   let isStaffApproval = false;
 
   if (studentToken) {
@@ -60,40 +72,53 @@ export async function processClientAttendanceScan({
       targetSessionId = activeSession.id;
     }
   } else if (sessionToken) {
-    // Student or staff scanning lecture session QR code
+    // Student scanning a live lecture QR code
     targetSessionId = sessionToken.sessionId;
+    targetStudentId = userId || `student_${Date.now()}`;
+  } else {
+    // Arbitrary text, student ID, roll number, or custom barcode scanned by camera
+    const cleanTag = sanitizeIdentifier(trimmed);
+    targetStudentId = cleanTag ? `stu_${cleanTag}` : userId || `student_${Date.now()}`;
+    if (activeSession) {
+      targetSessionId = activeSession.id;
+    }
   }
 
-  // 1. Instant local store update & record saving
+  // 1. Instant local store record saving
   const record = localStore.addOrUpdateRecord(
     targetSessionId,
     targetStudentId,
     "Approved (Auto-Scanned)",
   );
 
-  // Ensure record is attached to the active session if different
+  // Also bind to active session ID if different
   if (activeSession && activeSession.id !== targetSessionId) {
     localStore.addOrUpdateRecord(activeSession.id, targetStudentId, "Approved (Auto-Scanned)");
   }
 
-  // Ensure universal fallback entry exists
+  // Also bind to sess_local_active for universal fallback visibility
   if (targetSessionId !== "sess_local_active") {
     localStore.addOrUpdateRecord("sess_local_active", targetStudentId, "Approved (Auto-Scanned)");
   }
 
-  // 2. Fetch or create student profile metadata
+  // 2. Resolve or automatically build student profile metadata
   const profiles = localStore.getProfiles();
   const details = localStore.getStudentDetails();
 
   let profile = profiles.find((p) => p.id === targetStudentId);
   if (!profile) {
+    const rawClean = trimmed.replace(/^CERP_STUDENT\||^CERP1\|/, "").trim();
+    const isName = rawClean.includes(" ") && !rawClean.includes("|");
+    const firstName = isName ? rawClean.split(" ")[0]! : "Student";
+    const lastName = isName
+      ? rawClean.split(" ").slice(1).join(" ")
+      : sanitizeIdentifier(rawClean) || "Scanned";
+
     profile = {
       id: targetStudentId,
-      first_name: "Student",
-      last_name: targetStudentId.startsWith("demo")
-        ? targetStudentId.slice(-4).toUpperCase()
-        : "Scanned",
-      email: `${targetStudentId.slice(0, 8)}@campus.edu`,
+      first_name: firstName,
+      last_name: lastName,
+      email: `${sanitizeIdentifier(rawClean).toLowerCase() || "student"}@campus.edu`,
       phone: "+91 98765 43210",
       role: "student",
     };
@@ -102,9 +127,13 @@ export async function processClientAttendanceScan({
 
   let detail = details.find((d) => d.user_id === targetStudentId);
   if (!detail) {
+    const rawClean = trimmed.replace(/^CERP_STUDENT\||^CERP1\|/, "").trim();
     detail = {
       user_id: targetStudentId,
-      roll_number: `CS-2024-${Math.floor(100 + Math.random() * 900)}`,
+      roll_number:
+        rawClean.length < 20 && /^[a-zA-Z0-9-]+$/.test(rawClean)
+          ? rawClean.toUpperCase()
+          : `CS-2024-${Math.floor(100 + Math.random() * 900)}`,
       section: "A",
       semester: 4,
     };
@@ -113,7 +142,18 @@ export async function processClientAttendanceScan({
 
   const studentName = `${profile.first_name} ${profile.last_name}`.trim();
 
-  // 3. Save to Appwrite Cloud Storage & Database (asynchronous, non-blocking)
+  // 3. Save to Supabase (best-effort, non-blocking)
+  try {
+    void supabase.from("attendance_records").insert({
+      session_id: targetSessionId,
+      student_id: targetStudentId,
+      status: "approved",
+    });
+  } catch {
+    // Offline fallback
+  }
+
+  // 4. Save to Appwrite Cloud Storage & Database (asynchronous, non-blocking)
   void saveAttendanceRecord({
     sessionId: targetSessionId,
     studentId: targetStudentId,
@@ -123,7 +163,7 @@ export async function processClientAttendanceScan({
     status: "Auto-Approved",
   }).catch((err) => console.warn("[Appwrite Sync]", err));
 
-  // Dispatch custom browser event to notify all components to reload present lists instantly
+  // 5. Notify all open UI tabs/components to update present student lists instantly
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent("cerp_attendance_updated", {
