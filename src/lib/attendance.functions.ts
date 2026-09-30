@@ -108,6 +108,15 @@ export const getActiveSessionForTeacher = createServerFn({ method: "POST" })
     return session;
   });
 
+/** Whether the server still accepts scans for this exact session. `null` means it never had it. */
+export const getSessionStatus = createServerFn({ method: "POST" })
+  .validator(z.object({ sessionId: z.string().trim().min(1).max(120) }))
+  .handler(async ({ data }): Promise<{ isActive: boolean } | null> => {
+    const s = await store();
+    const session = await s.getSession(data.sessionId);
+    return session ? { isActive: session.isActive } : null;
+  });
+
 /** Only this teacher's own sessions, so a shared server does not expose other classes. */
 export const listRecentSessions = createServerFn({ method: "POST" })
   .validator(

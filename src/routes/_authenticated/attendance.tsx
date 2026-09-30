@@ -66,6 +66,7 @@ import {
   endAttendanceSession,
   getActiveSessionForTeacher,
   getClassRoster,
+  getSessionStatus,
   listAttendance,
   listRecentSessions,
   openAttendanceSession,
@@ -120,6 +121,9 @@ function AttendancePage() {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [rosterDraft, setRosterDraft] = useState("");
   const [savingRoster, setSavingRoster] = useState(false);
+  // Which server this page actually talks to. A teacher projecting a QR from one host while
+  // students scan against another is indistinguishable from a broken scan without this.
+  const [servedFrom, setServedFrom] = useState("");
 
   // Reports stay openable after the session stops: they key off the session id, not live state.
   const [reportOpen, setReportOpen] = useState(false);
@@ -215,6 +219,10 @@ function AttendancePage() {
     queryFn: () => getClassRoster({ data: { classSectionId: activeSectionId } }),
   });
 
+  useEffect(() => {
+    setServedFrom(window.location.host);
+  }, []);
+
   // Reload mid-lecture must not orphan a live QR: ask the server what this teacher is hosting.
   useEffect(() => {
     if (!user?.id) return;
@@ -230,6 +238,40 @@ function AttendancePage() {
       cancelled = true;
     };
   }, [user?.id]);
+
+  // A projected QR is only worth projecting while the server still recognises the session behind
+  // it: after a server restart, or a stop from another device, the old code kept rotating a code
+  // that was guaranteed to fail for every student in the room. Deliberately not a cached query —
+  // a stale cached answer here would overwrite a session the teacher just started.
+  useEffect(() => {
+    if (!session) return;
+    const sessionId = session.id;
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        const status = await getSessionStatus({ data: { sessionId } });
+        if (cancelled || status?.isActive) return;
+        setSession(null);
+        toast.error(
+          status
+            ? "This session has been stopped, so the QR on screen can no longer mark attendance."
+            : "The server no longer hosts this session. Start it again before students scan.",
+        );
+      } catch {
+        // One unreachable poll must not kill a live QR; a real outage shows up in the scans.
+      }
+    };
+
+    void check();
+    const intervalId = window.setInterval(() => void check(), 5000);
+    window.addEventListener("focus", check);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", check);
+    };
+  }, [session]);
 
   // Rotate the QR payload every second. The secret only ever reaches the hosting teacher.
   useEffect(() => {
@@ -676,6 +718,10 @@ function AttendancePage() {
               <p className="text-center text-sm text-muted-foreground">
                 {session.className ?? "Class"} · {presentCount} marked present
                 {rosterStudents.length > 0 ? ` of ${rosterStudents.length} enrolled` : ""}
+              </p>
+              <p className="text-center text-xs text-muted-foreground/70">
+                Codes are verified by <span className="font-mono">{servedFrom}</span> — students
+                must have the app open from that same address.
               </p>
             </>
           ) : session ? (

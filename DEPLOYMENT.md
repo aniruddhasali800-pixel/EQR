@@ -108,6 +108,13 @@ In a desktop browser, open DevTools → Application → Service Workers and conf
 the worker shows *Status: activated* with a precache cache listed, then check that
 the address bar offers an install icon.
 
+An open tab keeps running the bundle it loaded, so `src/lib/pwa.ts` now re-checks
+`sw.js` every five minutes and reloads the page once a newer worker takes control.
+That is what stops a projector left open across a deploy from minting QR codes the
+new server cannot read. The QR card also prints the host that will verify the codes,
+so a teacher can see at a glance whether the class is scanning against the same
+server.
+
 Then log in and run one attendance loop end to end: teacher starts a session, a
 second device scans the rotating QR and taps *Mark Attendance*, the name appears in
 the live list, the teacher stops the session and *Download PDF* saves a real `.pdf`
@@ -257,8 +264,10 @@ through the Supabase CLI or the SQL editor, never from the container.
 | --- | --- |
 | Every page returns 500, log shows `@clerk/clerk-react: The publishableKey ... is invalid` | A bad `VITE_CLERK_PUBLISHABLE_KEY` was baked in at build time and SSR dies on it. Set the correct key and rebuild — a restart is not enough. |
 | PWA never offers "Install app", DevTools shows the worker as redundant | The response was served by Node with the stale `Content-Length`. Check `curl -sI http://<host>/sw.js` against the file size in `.output/public/sw.js`, and confirm the `web` container is the one answering. |
-| Browser still shows the old UI after a deploy | Hard-reload once. After that the `no-cache` worker rules take over; `?sw=off` is the built-in kill switch in `src/lib/pwa.ts`. |
+| Browser still shows the old UI after a deploy | Open tabs reload themselves within five minutes once the new worker takes control (`src/lib/pwa.ts`); hard-reload to force it. `?sw=off` is the kill switch if the worker itself is the problem. |
 | Student scans and gets "This attendance session is not on the server", and the QR preview shows a `sess_…` id | The teacher's screen is an old cached bundle drawing QRs from a build that kept sessions in its own `localStorage`; the server has never seen that session id. Reload the teacher's device (hard refresh, or close and reopen the installed app) and start the session again. Both devices must run the same build for a scan to land. |
+| Teacher's QR vanishes with "The server no longer hosts this session. Start it again before students scan." | The server restarted, or its data directory was wiped/reset — the session genuinely is not there any more. Start it again; the teacher page now polls every five seconds instead of projecting a QR no student can use. |
+| Teacher's QR vanishes with "This session has been stopped…" | Another device (or another tab) stopped that session. The QR on screen is finished; start a new session for the next batch. |
 | Data pages load but write nothing to Supabase | `SUPABASE_URL` / keys missing from `.env.server`, and the app fell back to its local-storage mode (`[Campus ERP] Running in Local Storage Mode` in the browser console). |
 | Scan succeeds but the name never appears in the attendance list | The Node process cannot write `DATA_DIR` (permission or disk full) — `docker compose logs app` shows `[attendance store] write failed`. The container expects `/data` owned by the app's non-root user. |
 | Marks vanish, or one teacher's sessions are invisible to another | Two `app` processes are sharing one `/data` (see section 9). Keep a single writer. |
@@ -321,3 +330,21 @@ clean `DATA_DIR` — 55 checks, all passing.
 - `npm run lint` still reports CRLF/prettier noise repo-wide, including untouched
   files: the working copy is checked out with `core.autocrlf=true`. The files changed
   here were normalised with `npx prettier --write`.
+
+### Follow-up round: keeping the teacher's QR honest
+
+The next build added a `getSessionStatus` server function and a poll on the teacher
+page, so an unusable QR is never projected. Re-run of the same method on the new
+`node_server` artifact — 18 checks, all passing:
+
+- `getSessionStatus` answers `{ isActive: true }` while the teacher hosts the
+  session, `{ isActive: false }` after it is stopped, and `null` for a session id the
+  server never had. Those three cases are what the teacher page now distinguishes, so
+  a stopped session says "this session has been stopped" instead of blaming the server.
+- A session id minted by the old browser-only build (`sess_…`) is still rejected, and
+  the rejection text names the reload the teacher has to do.
+- Live scan → `Present`, rescan deduped, forged signature rejected with no row, late
+  scan after stop → `session_ended`, and the stopped report still lists the full
+  roster as Present/Absent. Re-read from `DATA_DIR/attendance.json` afterwards.
+- Every page (`/`, `/auth`, `/attendance`, `/dashboard`, `/settings`, `/sw.js`,
+  `/manifest.webmanifest`) returns 200 from the built server.
