@@ -19,8 +19,12 @@ export type AppwriteConfig = {
 const DEFAULT_CONFIG: AppwriteConfig = {
   endpoint: "https://cloud.appwrite.io/v1",
   projectId: "",
-  apiKey:
-    "standard_baf1313fb15c5045598c5d4bc0745f74a1862f324e112d188fb0a41565b0046020f341d05baba78277a8a4bf9dfd76feb991e4b0e2c58c2faccf9837177d6652fb069b97cc4e2ba482c9f3971ee83f0773577fec7dddc247abca116224e8f24ec1a40543e912d96b9f3f698d0cefc34f419eb3c5f64f3d5e12d990c9aede4212",
+  // Deliberately empty. This client talks to Appwrite straight from the browser, so any key
+  // compiled in here is downloadable by anyone — the previous hardcoded one was already leaked
+  // that way and must be revoked in the Appwrite console, not just deleted from the file.
+  // Paste a key into Settings → Appwrite Database & Storage (kept in localStorage) to re-enable
+  // the Appwrite mirror.
+  apiKey: "",
   databaseId: "campus_erp_db",
   attendanceCollectionId: "attendance_records",
   sessionsCollectionId: "attendance_sessions",

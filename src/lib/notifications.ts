@@ -1,6 +1,6 @@
 /**
  * Notification System
- * Handles CR attendance notifications, Exam broadcasts, and Unit Test announcements.
+ * Handles Exam broadcasts and Unit Test announcements.
  */
 
 export type AppNotification = {
@@ -25,30 +25,6 @@ export function getNotifications(): AppNotification[] {
   } catch {
     return [];
   }
-}
-
-export function notifyTeacherFromCR(
-  crName: string,
-  studentName: string,
-  subjectName: string,
-  newStatus: string,
-) {
-  const notifications = getNotifications();
-  const newNotif: AppNotification = {
-    id: `notif_${Date.now()}`,
-    senderName: crName,
-    senderRole: "CR",
-    title: "CR Attendance Update",
-    message: `CR ${crName} changed attendance for ${studentName} to "${newStatus}" in ${subjectName}.`,
-    createdAt: new Date().toISOString(),
-    read: false,
-  };
-
-  notifications.unshift(newNotif);
-  if (typeof window !== "undefined") {
-    localStorage.setItem(NOTIF_KEY, JSON.stringify(notifications));
-  }
-  return newNotif;
 }
 
 export function broadcastExamNotification(

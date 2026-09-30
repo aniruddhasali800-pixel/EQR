@@ -1,0 +1,69 @@
+name: campus-erp
+
+services:
+  app:
+    build:
+      context: .
+      # Baked into the browser bundle at image build time — after changing
+      # these, rebuild (`docker compose --env-file .env.server build app`) and
+      # redeploy. The `--env-file` flag is what feeds these `${...}` values;
+      # without it Compose interpolates from `.env` only and they arrive empty.
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:-}
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+    image: campus-erp:latest
+    restart: unless-stopped
+    # Runtime-only values (service role keys etc.). Created in step 2 of DEPLOYMENT.md.
+    env_file: .env.server
+    volumes:
+      # Live QR attendance sessions, records and class rosters. Losing this volume
+      # loses sessions that were never mirrored to Supabase.
+      - eqr-data:/data
+    networks:
+      - eqr
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      target: web
+    image: campus-erp-web:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # The nginx config is baked into the image (Dockerfile stage 4); only
+      # certificates and the ACME webroot are mounted at runtime.
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+      - certbot-www:/var/www/certbot
+    networks:
+      - eqr
+    depends_on:
+      app:
+        condition: service_healthy
+
+  # TLS issuance helper — runs only on demand:
+  #   docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d eqr.example.edu
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./deploy/nginx/certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    profiles:
+      - tools
+
+networks:
+  eqr:
+    driver: bridge
+
+volumes:
+  certbot-www:
+  eqr-data:

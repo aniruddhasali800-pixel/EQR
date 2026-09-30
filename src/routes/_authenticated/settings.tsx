@@ -268,7 +268,7 @@ function SettingsPage() {
                 type="password"
                 value={awApiKey}
                 onChange={(e) => setAwApiKey(e.target.value)}
-                placeholder="standard_baf13..."
+                placeholder="standard_…"
               />
               <p className="text-[11px] text-muted-foreground">
                 Your Appwrite API key for storing attendance data and report files.

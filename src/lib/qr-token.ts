@@ -48,20 +48,31 @@ export function parseToken(raw: string) {
 /** Tokens stay valid for a short window so slow scans still work. */
 export const TOKEN_TOLERANCE_SECONDS = 20;
 
-export async function verifyToken(secret: string, raw: string) {
+export type TokenVerification =
+  | { ok: true; sessionId: string }
+  | {
+      ok: false;
+      code: "not_a_cerp_qr" | "expired" | "bad_signature";
+      reason: string;
+    };
+
+export async function verifyToken(secret: string, raw: string): Promise<TokenVerification> {
   const parsed = parseToken(raw);
-  if (!parsed)
-    return { ok: false as const, reason: "This is not a Campus ERP attendance QR code." };
+  if (!parsed) return { ok: false, code: "not_a_cerp_qr", reason: QR_NOT_CERP };
   const drift = Math.abs(currentTick() - parsed.tick);
   if (drift > TOKEN_TOLERANCE_SECONDS) {
-    return { ok: false as const, reason: "This QR code has expired. Scan the live code again." };
+    return { ok: false, code: "expired", reason: QR_EXPIRED };
   }
   const expected = await signTick(secret, parsed.sessionId, parsed.tick);
   if (expected !== parsed.signature) {
-    return { ok: false as const, reason: "Invalid QR code signature." };
+    return { ok: false, code: "bad_signature", reason: QR_BAD_SIGNATURE };
   }
   return { ok: true as const, sessionId: parsed.sessionId };
 }
+
+export const QR_NOT_CERP = "This is not a Campus ERP attendance QR code.";
+export const QR_EXPIRED = "This QR code has expired. Scan the live code again.";
+export const QR_BAD_SIGNATURE = "Invalid QR code signature.";
 
 export function buildStudentToken(userId: string) {
   return `CERP_STUDENT|${userId}`;

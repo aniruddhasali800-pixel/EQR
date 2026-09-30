@@ -21,7 +21,7 @@ export type SessionHeaderInfo = {
   teacherName: string;
   crName: string;
   subjectName: string;
-  subjectCode?: string;
+  subjectCode?: string | undefined;
   className: string;
   startedAt: string;
   endedAt: string;
@@ -48,7 +48,7 @@ export function exportToExcel(
       `"Class / Section","${esc(headerInfo.className)}"`,
       `"Lecture Start Time","${new Date(headerInfo.startedAt).toLocaleString()}"`,
       `"Lecture End Time","${new Date(headerInfo.endedAt).toLocaleString()}"`,
-      `"Total Students Present","${records.length}"`,
+      `"Total Students Present","${records.filter((r) => r.status !== "Absent").length}"`,
       `""`,
     );
   }
@@ -72,7 +72,7 @@ export function exportToExcel(
     `"${esc(r.phone || "—")}"`,
     `"${esc(r.subject || "Lecture")}"`,
     `"${esc(r.className || "Class")}"`,
-    `"${new Date(r.markedAt).toLocaleString()}"`,
+    `"${formatWhen(r.markedAt)}"`,
     `"${esc(r.status || "Approved")}"`,
   ]);
 
@@ -94,6 +94,19 @@ export function exportToExcel(
 
 function esc(val: string): string {
   return (val || "").replace(/"/g, '""');
+}
+
+/** Absent roster rows legitimately have no scan time, so never render "Invalid Date". */
+function formatWhen(value: string): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+function formatTimeWhen(value: string): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString();
 }
 
 /**
@@ -121,7 +134,7 @@ export function generateWordReport(
         <td style="padding: 6px 10px; border: 1px solid #d1d5db; font-weight: 600; font-size: 12px;">${r.name}</td>
         <td style="padding: 6px 10px; border: 1px solid #d1d5db; font-size: 12px;">${r.email || "—"}</td>
         <td style="padding: 6px 10px; border: 1px solid #d1d5db; font-size: 12px;">${r.phone || "—"}</td>
-        <td style="padding: 6px 10px; border: 1px solid #d1d5db; font-size: 12px;">${new Date(r.markedAt).toLocaleTimeString()}</td>
+        <td style="padding: 6px 10px; border: 1px solid #d1d5db; font-size: 12px;">${formatTimeWhen(r.markedAt)}</td>
         <td style="padding: 6px 10px; border: 1px solid #d1d5db; color: #16a34a; font-weight: 600; font-size: 12px;">${r.status || "Present"}</td>
       </tr>
     `,
@@ -370,7 +383,7 @@ function buildExcelCsvContent(
       `"Class / Section","${esc(headerInfo.className)}"`,
       `"Lecture Start Time","${new Date(headerInfo.startedAt).toLocaleString()}"`,
       `"Lecture End Time","${new Date(headerInfo.endedAt).toLocaleString()}"`,
-      `"Total Students Present","${records.length}"`,
+      `"Total Students Present","${records.filter((r) => r.status !== "Absent").length}"`,
       `""`,
     );
   }
@@ -398,7 +411,7 @@ function buildExcelCsvContent(
         `"${esc(r.phone || "—")}"`,
         `"${esc(r.subject || "Lecture")}"`,
         `"${esc(r.className || "Class")}"`,
-        `"${new Date(r.markedAt).toLocaleString()}"`,
+        `"${formatWhen(r.markedAt)}"`,
         `"${esc(r.status || "Approved")}"`,
       ].join(","),
     );
@@ -408,16 +421,25 @@ function buildExcelCsvContent(
 }
 
 /**
- * Opens a clean printable PDF report window.
+ * Opens a clean printable report.
+ *
+ * Uses a hidden same-origin iframe instead of `window.open`: an installed PWA runs in a
+ * standalone window with no tab strip, where popup calls are blocked and the old code simply
+ * returned without ever showing the report.
  */
 export function exportToPdf(
   records: AttendanceExportRow[],
   title = "Attendance Sheet",
   headerInfo?: SessionHeaderInfo,
 ) {
-  const printWindow = window.open("", "_blank");
-  if (!printWindow) return;
+  printHtmlDocument(buildPrintDocument(records, title, headerInfo), title);
+}
 
+function buildPrintDocument(
+  records: AttendanceExportRow[],
+  title: string,
+  headerInfo?: SessionHeaderInfo,
+): string {
   const headerBlock = headerInfo
     ? `
       <div style="border: 2px solid #3b82f6; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; background: #f0f9ff;">
@@ -454,7 +476,7 @@ export function exportToPdf(
         <td style="padding: 8px; border: 1px solid #ddd; font-weight: 600;">${r.name}</td>
         <td style="padding: 8px; border: 1px solid #ddd;">${r.email || "—"}</td>
         <td style="padding: 8px; border: 1px solid #ddd;">${r.phone || "—"}</td>
-        <td style="padding: 8px; border: 1px solid #ddd;">${new Date(r.markedAt).toLocaleTimeString()}</td>
+        <td style="padding: 8px; border: 1px solid #ddd;">${formatTimeWhen(r.markedAt)}</td>
         <td style="padding: 8px; border: 1px solid #ddd; color: #16a34a; font-weight: 600;">${r.status || "Approved"}</td>
       </tr>
     `,
@@ -482,7 +504,9 @@ export function exportToPdf(
         <div class="header">
           <h1>Campus ERP — Attendance Report</h1>
           <p>${title} · Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
-          <p>Total Present Students: <strong>${records.length}</strong></p>
+          <p>Present: <strong>${records.filter((r) => (r.status || "Approved") !== "Absent").length}</strong> ·
+             Absent: <strong>${records.filter((r) => r.status === "Absent").length}</strong> ·
+             Total on sheet: <strong>${records.length}</strong></p>
         </div>
         ${headerBlock}
         <table>
@@ -501,17 +525,70 @@ export function exportToPdf(
             ${rowsHtml || '<tr><td colspan="7" style="text-align:center; padding: 16px;">No attendance records found.</td></tr>'}
           </tbody>
         </table>
-        <script>
-          window.onload = function() {
-            window.print();
-          };
-        </script>
       </body>
     </html>
   `;
 
-  printWindow.document.write(html);
-  printWindow.document.close();
+  return html;
+}
+
+/**
+ * Renders a report inside a hidden same-origin iframe and prints it. Popup blockers cannot
+ * stop this, and the document is fully written before `print()` is called, unlike the old
+ * `document.write`-into-a-popup approach that raced the load event.
+ */
+export function printHtmlDocument(html: string, title: string): void {
+  const frame = document.createElement("iframe");
+  frame.title = title;
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText =
+    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(frame);
+
+  let removed = false;
+  const remove = () => {
+    if (removed) return;
+    removed = true;
+    frame.remove();
+  };
+
+  const doc = frame.contentDocument;
+  if (!doc) {
+    remove();
+    downloadHtmlFallback(html, title);
+    return;
+  }
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  const win = frame.contentWindow;
+  const print = () => {
+    try {
+      win?.focus();
+      win?.print();
+    } catch (err) {
+      console.warn("[export] iframe print failed, offering the report as a file:", err);
+      downloadHtmlFallback(html, title);
+    }
+    // Chrome/Firefox keep the print dialog async; give it room before tearing the frame down.
+    window.setTimeout(remove, 60_000);
+  };
+  win?.addEventListener("afterprint", () => window.setTimeout(remove, 500));
+
+  if (doc.readyState === "complete") window.setTimeout(print, 120);
+  else frame.onload = () => window.setTimeout(print, 120);
+}
+
+function downloadHtmlFallback(html: string, title: string): void {
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const safe = title.replace(/[^\w.-]+/g, "_").slice(0, 60) || "Attendance_Report";
+  downloadFile(
+    new File([blob], `${safe}_${new Date().toISOString().slice(0, 10)}.html`, {
+      type: "text/html",
+    }),
+  );
 }
 
 /**
@@ -540,10 +617,7 @@ export async function shareAttendance(
     `━━━━━━━━━━━━━━━━━━━\n` +
     records
       .slice(0, 20)
-      .map(
-        (r, i) =>
-          `${i + 1}. *${r.name}* (${r.roll || "—"}) — ${new Date(r.markedAt).toLocaleTimeString()}`,
-      )
+      .map((r, i) => `${i + 1}. *${r.name}* (${r.roll || "—"}) — ${formatTimeWhen(r.markedAt)}`)
       .join("\n") +
     (records.length > 20 ? `\n...and ${records.length - 20} more.` : "") +
     `\n━━━━━━━━━━━━━━━━━━━\n_Generated by Campus ERP_`;

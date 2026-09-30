@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 
 import {
@@ -8,11 +9,12 @@ import {
   Building2,
   BookOpen,
   CalendarDays,
+  CheckCircle2,
   Clock,
   QrCode,
   ScanLine,
   UserCheck,
-  HardDrive,
+  Database,
   Filter,
   Layers,
   Cloud,
@@ -41,6 +43,7 @@ import { ROLE_LABELS, displayName, useAuth } from "@/lib/auth";
 import { buildStudentToken } from "@/lib/qr-token";
 import { DAY_NAMES, formatTime } from "@/lib/timetable";
 import { localStore } from "@/lib/local-store";
+import { listStudentMarks } from "@/lib/attendance.functions";
 import { isAppwriteConfigured } from "@/integrations/appwrite/client";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -107,6 +110,7 @@ function StatCard({
 
 function Dashboard() {
   const { profile, roles, isStaff, user } = useAuth();
+  const queryClient = useQueryClient();
   const [scannerOpen, setScannerOpen] = useState(false);
   const [studentQrOpen, setStudentQrOpen] = useState(false);
 
@@ -116,6 +120,18 @@ function Dashboard() {
 
   const todayDow = new Date().getDay();
   const studentQrToken = user?.id ? buildStudentToken(user.id) : "";
+
+  // My attendance, read back from the server so a mark is only claimed when it is stored.
+  const myRoll = user?.id
+    ? (localStore.getStudentDetails().find((d) => d.user_id === user.id)?.roll_number ?? null)
+    : null;
+  const myMarks = useQuery({
+    queryKey: ["my-marks", user?.id],
+    enabled: Boolean(user?.id),
+    refetchInterval: 5000,
+    queryFn: () =>
+      listStudentMarks({ data: { studentId: user!.id, rollNumber: myRoll, limit: 5 } }),
+  });
 
   // Dynamic branch stats
   const activeBranchInfo = BRANCH_DATA[selectedBranch] || BRANCH_DATA["mechanical"]!;
@@ -183,7 +199,7 @@ function Dashboard() {
                 variant="outline"
                 className="gap-1 border-emerald-500/40 text-emerald-700 bg-emerald-50/50"
               >
-                <HardDrive className="size-3 text-emerald-600" /> Local Storage Engine
+                <Database className="size-3 text-emerald-600" /> Server Attendance Store
               </Badge>
               {isAppwriteConfigured() && (
                 <Badge
@@ -228,10 +244,11 @@ function Dashboard() {
           open={scannerOpen}
           onOpenChange={(open) => {
             setScannerOpen(open);
-            if (!open && typeof window !== "undefined") {
-              window.dispatchEvent(new CustomEvent("cerp_attendance_updated"));
+            if (!open) {
+              void queryClient.invalidateQueries({ queryKey: ["my-marks", user?.id] });
             }
           }}
+          audience={isStaff ? "staff" : "student"}
           title={isStaff ? "Approve Student Attendance" : "Scan attendance QR"}
           description={
             isStaff
@@ -239,6 +256,48 @@ function Dashboard() {
               : "Point your camera at the rotating QR code on the teacher's screen."
           }
         />
+
+        <section className="surface-card space-y-3 p-5 rounded-2xl border">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-semibold">
+              {isStaff ? "Sessions you have hosted" : "My attendance"}
+            </h2>
+            <Badge variant="outline" className="gap-1">
+              <CheckCircle2 className="size-3 text-emerald-600" /> From the server
+            </Badge>
+          </div>
+          {myMarks.isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : myMarks.data && myMarks.data.length > 0 ? (
+            <ul className="space-y-2">
+              {myMarks.data.map((mark) => (
+                <li
+                  key={`${mark.sessionId}-${mark.markedAt}`}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-muted/30 px-3 py-2 text-sm"
+                >
+                  <span className="font-medium">
+                    {mark.subjectName ?? mark.className ?? "Session"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {mark.className ?? ""} · {new Date(mark.markedAt).toLocaleString()}
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {mark.source === "live_qr" ? "Verified scan" : "Teacher approved"}
+                  </span>
+                  <Badge variant="secondary" className="text-xs">
+                    {mark.status}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {isStaff
+                ? "No attendance sessions yet. Use the scan button above to approve students."
+                : "Nothing recorded yet. Scan the rotating QR on the teacher's screen and tap Mark Attendance — this list updates as soon as the server stores your mark."}
+            </p>
+          )}
+        </section>
 
         <Dialog open={studentQrOpen} onOpenChange={setStudentQrOpen}>
           <DialogContent className="sm:max-w-md text-center">

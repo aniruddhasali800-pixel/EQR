@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import {
+  AlertTriangle,
   Check,
+  ClipboardList,
   Download,
   FileSpreadsheet,
   FileText,
+  History,
   Loader2,
   Printer,
   QrCode,
   RefreshCcw,
+  Save,
   ScanLine,
   Share2,
   Square,
@@ -24,15 +28,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   autoSaveAndShareReport,
   exportToExcel,
   exportToPdf,
   shareAttendance,
+  type AttendanceExportRow,
   type SessionHeaderInfo,
 } from "@/lib/export-utils";
-import { notifyTeacherFromCR } from "@/lib/notifications";
-import { saveAttendanceSession } from "@/integrations/appwrite/service";
+import { openAttendancePdf, saveAttendancePdf } from "@/lib/pdf-export";
+import { announceAttendanceUpdate, onAttendanceUpdate } from "@/lib/attendance-events";
 
 import {
   Dialog,
@@ -52,6 +58,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, displayName } from "@/lib/auth";
 import { buildToken, currentTick } from "@/lib/qr-token";
+import { localStore } from "@/lib/local-store";
+import type { AttendanceSession, ReportRow } from "@/lib/attendance-types";
+import type { AttendanceReport } from "@/lib/attendance.functions";
+import {
+  buildAttendanceReport,
+  endAttendanceSession,
+  getActiveSessionForTeacher,
+  getClassRoster,
+  listAttendance,
+  listRecentSessions,
+  openAttendanceSession,
+  saveClassRoster,
+} from "@/lib/attendance.functions";
 
 export const Route = createFileRoute("/_authenticated/attendance")({
   head: () => ({
@@ -74,29 +93,40 @@ export const Route = createFileRoute("/_authenticated/attendance")({
   component: AttendancePage,
 });
 
-type ActiveSession = {
-  id: string;
-  secret: string;
-  class_section_id: string;
-  subject_id: string | null;
-  started_at: string;
-};
+function toExportRows(rows: ReportRow[], header: { className: string; subject: string }) {
+  return rows.map<AttendanceExportRow>((row) => ({
+    name: row.name,
+    roll: row.roll,
+    email: row.email,
+    phone: row.phone,
+    className: header.className,
+    subject: header.subject,
+    // Absent students have no scan time; the exporters render an empty value as "—".
+    markedAt: row.markedAt ?? "",
+    status: row.status,
+  }));
+}
 
 function AttendancePage() {
   const { user, isStaff, profile } = useAuth();
   const queryClient = useQueryClient();
   const [sectionId, setSectionId] = useState("");
   const [subjectId, setSubjectId] = useState("");
-  const [session, setSession] = useState<ActiveSession | null>(null);
+  const [crName, setCrName] = useState("");
+  const [session, setSession] = useState<AttendanceSession | null>(null);
   const [token, setToken] = useState("");
   const [starting, setStarting] = useState(false);
   const [approvalScannerOpen, setApprovalScannerOpen] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
+  const [rosterDraft, setRosterDraft] = useState("");
+  const [savingRoster, setSavingRoster] = useState(false);
 
-  // CR Name and session end report state
-  const [crName, setCrName] = useState("");
-  const [showEndReportDialog, setShowEndReportDialog] = useState(false);
-  const [generatingReport, setGeneratingReport] = useState(false);
+  // Reports stay openable after the session stops: they key off the session id, not live state.
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [report, setReport] = useState<AttendanceReport | null>(null);
   const [reportGenerated, setReportGenerated] = useState(false);
+  const seenStudentsRef = useRef<Set<string> | null>(null);
 
   const sections = useQuery({
     queryKey: ["class-sections-all"],
@@ -108,7 +138,7 @@ function AttendancePage() {
           .order("name");
         if (!error && data && data.length > 0) return data;
       } catch {
-        // Fallback
+        // Supabase not connected — fall through to the demo sections.
       }
       return [
         {
@@ -139,7 +169,7 @@ function AttendancePage() {
           .order("code");
         if (!error && data && data.length > 0) return data;
       } catch {
-        // Fallback
+        // Supabase not connected — fall through to the demo subjects.
       }
       return [
         {
@@ -177,20 +207,45 @@ function AttendancePage() {
     return matching.length > 0 ? matching : all;
   }, [subjects.data, selectedSection]);
 
-  // Rotate the QR payload every second safely.
+  const activeSectionId = session?.classSectionId ?? sectionId;
+
+  const roster = useQuery({
+    queryKey: ["class-roster", activeSectionId],
+    enabled: Boolean(activeSectionId),
+    queryFn: () => getClassRoster({ data: { classSectionId: activeSectionId } }),
+  });
+
+  // Reload mid-lecture must not orphan a live QR: ask the server what this teacher is hosting.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void getActiveSessionForTeacher({ data: { teacherId: user.id } }).then((restored) => {
+      if (cancelled || !restored) return;
+      setSession((current) => current ?? restored);
+      setSectionId((current) => current || restored.classSectionId);
+      setSubjectId((current) => current || restored.subjectId || "");
+      setCrName((current) => current || restored.crName || "");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  // Rotate the QR payload every second. The secret only ever reaches the hosting teacher.
   useEffect(() => {
     if (!session) {
       setToken("");
       return;
     }
     let active = true;
-    const secretKey = session.secret || `secret_key_${session.id}`;
     const refresh = async () => {
       try {
-        const next = await buildToken(secretKey, session.id, currentTick());
+        const next = await buildToken(session.secret, session.id, currentTick());
         if (active) setToken(next);
       } catch {
-        if (active) setToken(`CERP1|${session.id}|${currentTick()}|offline_sig`);
+        // Web Crypto is unavailable over plain http on some browsers; without a real signature
+        // the server would reject every scan, so say so instead of showing a useless QR.
+        if (active) setToken("");
       }
     };
     void refresh();
@@ -201,236 +256,251 @@ function AttendancePage() {
     };
   }, [session]);
 
-  // Listen for real-time attendance scan updates
-  useEffect(() => {
-    function handleUpdate() {
-      void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
-    }
-    if (typeof window !== "undefined") {
-      window.addEventListener("cerp_attendance_updated", handleUpdate);
-      return () => window.removeEventListener("cerp_attendance_updated", handleUpdate);
-    }
-  }, [queryClient]);
-
   const present = useQuery({
-    queryKey: ["attendance-present", session?.id],
+    queryKey: ["attendance-records", session?.id],
     enabled: Boolean(session?.id),
-    refetchInterval: 1500,
-    queryFn: async () => {
-      try {
-        const { data: records, error } = await supabase
-          .from("attendance_records")
-          .select("student_id, marked_at, status")
-          .eq("session_id", session!.id)
-          .order("marked_at", { ascending: false });
-
-        if (!error && records && records.length > 0) {
-          const ids = records.map((row) => row.student_id);
-          const [{ data: profiles }, { data: details }] = await Promise.all([
-            supabase
-              .from("profiles")
-              .select("id, first_name, last_name, email, phone")
-              .in("id", ids),
-            supabase.from("student_details").select("user_id, roll_number").in("user_id", ids),
-          ]);
-          return records.map((record) => {
-            const profile = profiles?.find((row) => row.id === record.student_id);
-            const detail = details?.find((row) => row.user_id === record.student_id);
-            return {
-              id: record.student_id,
-              markedAt: record.marked_at,
-              status: record.status,
-              name:
-                [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Student",
-              roll: detail?.roll_number ?? "—",
-              email: profile?.email ?? "—",
-              phone: profile?.phone ?? "—",
-            };
-          });
-        }
-      } catch {
-        // Fallback to localStore
-      }
-
-      // Offline & Local Storage fallback: gather all records for current session or marked during session active window
-      const { localStore } = await import("@/lib/local-store");
-      const sessionStartTime = session?.started_at ? new Date(session.started_at).getTime() : 0;
-
-      const localRecords = localStore.getRecords().filter((r) => {
-        if (r.session_id === session!.id || r.session_id === "sess_local_active") return true;
-        if (sessionStartTime > 0) {
-          const markedTime = new Date(r.marked_at).getTime();
-          return markedTime >= sessionStartTime - 30000;
-        }
-        return false;
-      });
-
-      const profiles = localStore.getProfiles();
-      const details = localStore.getStudentDetails();
-
-      const seenIds = new Set<string>();
-      const allRows = localRecords
-        .filter((r) => {
-          if (seenIds.has(r.student_id)) return false;
-          seenIds.add(r.student_id);
-          return true;
-        })
-        .map((r) => {
-          const p = profiles.find((prof) => prof.id === r.student_id) || {
-            first_name: "Student",
-            last_name: "Scanned",
-            email: "student@campus.edu",
-            phone: "+91 98765 43210",
-          };
-          const d = details.find((det) => det.user_id === r.student_id) || {
-            roll_number: "CS-2024-001",
-          };
-          return {
-            id: r.student_id,
-            markedAt: r.marked_at,
-            status: r.status || "Approved",
-            name: `${p.first_name} ${p.last_name}`.trim(),
-            roll: d.roll_number,
-            email: p.email,
-            phone: p.phone ?? "—",
-          };
-        });
-
-      return allRows;
-    },
+    refetchInterval: 1000,
+    queryFn: () => listAttendance({ data: { sessionId: session!.id } }),
   });
 
-  async function startSession() {
-    const targetSection = sectionId || sections.data?.[0]?.id || "sec_cs_4a";
-    setStarting(true);
+  // Realtime: a scan in any tab on this device invalidates the list; other devices arrive via
+  // the 1s poll, so both paths announce the same new rows.
+  useEffect(
+    () =>
+      onAttendanceUpdate((updatedSessionId) => {
+        void queryClient.invalidateQueries({ queryKey: ["attendance-records", updatedSessionId] });
+        void queryClient.invalidateQueries({ queryKey: ["session-history"] });
+      }),
+    [queryClient],
+  );
 
-    const { localStore } = await import("@/lib/local-store");
-    const localSess = localStore.createSession({
-      class_section_id: targetSection,
-      subject_id: subjectId || null,
-      teacher_id: user?.id || "demo-teacher",
-      is_active: true,
-      secret: `secret_${Date.now()}`,
-      started_at: new Date().toISOString(),
-    });
+  useEffect(() => {
+    seenStudentsRef.current = null;
+  }, [session?.id]);
 
+  useEffect(() => {
+    const rows = present.data;
+    if (!rows) return;
+    if (!seenStudentsRef.current) {
+      seenStudentsRef.current = new Set(rows.map((row) => row.studentId));
+      return;
+    }
+    const seen = seenStudentsRef.current;
+    for (const row of rows) {
+      if (seen.has(row.studentId)) continue;
+      seen.add(row.studentId);
+      toast.success(`${row.studentName} marked present`, {
+        description: row.rollNumber ? `Roll ${row.rollNumber}` : undefined,
+      });
+    }
+  }, [present.data]);
+
+  const history = useQuery({
+    queryKey: ["session-history", user?.id],
+    enabled: Boolean(user?.id),
+    queryFn: () => listRecentSessions({ data: { teacherId: user!.id, limit: 8 } }),
+  });
+
+  const rosterStudents = roster.data?.students ?? [];
+  const presentCount = present.data?.length ?? 0;
+
+  const openReportFor = useCallback(async (sessionId: string) => {
+    setReportBusy(true);
     try {
-      const { data, error } = await supabase
-        .from("attendance_sessions")
-        .insert({
-          class_section_id: targetSection,
-          subject_id: subjectId || null,
-          teacher_id: user?.id || "demo-teacher",
-        })
-        .select("id, secret, class_section_id, subject_id, started_at")
-        .single();
-
-      if (!error && data) {
-        setSession({ ...data, secret: data.secret || localSess.secret } as ActiveSession);
-        setStarting(false);
-        toast.success("Live QR session started.");
+      const built = await buildAttendanceReport({ data: { sessionId } });
+      if (!built) {
+        toast.error("No session found on the server for that report.");
         return;
       }
-    } catch {
-      // Fallback
+      setReport(built);
+      setReportGenerated(false);
+      setReportOpen(true);
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not load the attendance report.");
+    } finally {
+      setReportBusy(false);
     }
+  }, []);
 
-    setSession(localSess as ActiveSession);
-    setStarting(false);
-    toast.success("Live QR session started.");
-  }
-
-  async function endSession() {
-    if (!session) return;
-
-    // Show report generation dialog instead of immediately closing
-    setShowEndReportDialog(true);
-  }
-
-  function buildHeaderInfo(): SessionHeaderInfo {
-    return {
-      teacherName: displayName(profile, "Teacher"),
-      crName: crName.trim() || "N/A",
-      subjectName: selectedSubject?.name || "Lecture",
-      subjectCode: selectedSubject?.code,
-      className: selectedSection?.name
-        ? `${selectedSection.name} · Sem ${selectedSection.semester}${selectedSection.section}`
-        : "Class",
-      startedAt: session?.started_at || new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-    };
-  }
-
-  function buildExportRows() {
-    return (present.data ?? []).map((p) => ({
-      name: p.name,
-      roll: p.roll,
-      email: p.email,
-      phone: p.phone,
-      className: selectedSection?.name ?? null,
-      subject: selectedSubject?.name ?? null,
-      markedAt: p.markedAt,
-      status: p.status || "Approved",
-    }));
-  }
-
-  async function confirmEndAndGenerateReport() {
-    if (!session) return;
-    setGeneratingReport(true);
-
-    const headerInfo = buildHeaderInfo();
-    const exportRows = buildExportRows();
-
+  async function startSession() {
+    if (!user?.id) {
+      toast.error("Sign in again to host a session.");
+      return;
+    }
+    const targetSection = sectionId || sections.data?.[0]?.id;
+    if (!targetSection) {
+      toast.error("Pick a class section first — add one in Administration if the list is empty.");
+      return;
+    }
+    setStarting(true);
     try {
-      // 1. Generate and download Excel + Word reports automatically
-      const result = await autoSaveAndShareReport(exportRows, headerInfo, session.id);
-
-      // 2. Save session summary to Appwrite
-      await saveAttendanceSession({
-        sessionId: session.id,
-        teacherName: headerInfo.teacherName,
-        crName: headerInfo.crName,
-        subjectName: headerInfo.subjectName,
-        className: headerInfo.className,
-        startedAt: headerInfo.startedAt,
-        endedAt: headerInfo.endedAt,
-        totalPresent: exportRows.length,
+      const created = await openAttendanceSession({
+        data: {
+          classSectionId: targetSection,
+          className: selectedSection
+            ? `${selectedSection.name} · Sem ${selectedSection.semester}${selectedSection.section}`
+            : targetSection,
+          subjectId: subjectId || null,
+          subjectName: selectedSubject?.name ?? null,
+          subjectCode: selectedSubject?.code ?? null,
+          teacherId: user.id,
+          teacherName: displayName(profile, "Teacher"),
+          crName: crName.trim() || null,
+        },
       });
-
-      // 3. Close the session in Supabase / LocalStore
-      const { error } = await supabase
-        .from("attendance_sessions")
-        .update({ is_active: false, ended_at: new Date().toISOString() })
-        .eq("id", session.id);
-
-      if (error) {
-        // Fallback to local store
-        const { localStore } = await import("@/lib/local-store");
-        localStore.endSession(session.id);
+      if (!created) {
+        toast.error("The server could not open the session. Attendance will not be recorded.");
+        return;
       }
+      setSession(created);
+      toast.success("Live QR session started.", {
+        description: "Students can now scan and mark attendance.",
+      });
+    } catch (err) {
+      console.error("[attendance] open session failed:", err);
+      toast.error(
+        "Could not start the session on the server. Check that the app server is running.",
+      );
+    } finally {
+      setStarting(false);
+    }
+  }
 
+  async function stopAndReport() {
+    if (!session) return;
+    setReportBusy(true);
+    const sessionId = session.id;
+    try {
+      // Stop first so the QR dies immediately, even if report building then fails.
+      const ended = await endAttendanceSession({
+        data: { sessionId, crName: crName.trim() || null },
+      });
+      setSession(null);
+      announceAttendanceUpdate(sessionId);
+      const built = await buildAttendanceReport({ data: { sessionId } });
+      if (!built) {
+        toast.error("Session stopped, but no records were found on the server.");
+        return;
+      }
+      setReport({ ...built, session: ended ?? built.session });
+      setReportOpen(true);
+      setReportGenerated(false);
+    } catch (err) {
+      console.error("[attendance] stop failed:", err);
+      toast.error("Could not stop the session on the server.");
+    } finally {
+      setReportBusy(false);
+    }
+  }
+
+  const reportHeader = report?.session;
+
+  const headerInfo: SessionHeaderInfo | null = useMemo(() => {
+    if (!reportHeader) return null;
+    return {
+      teacherName: reportHeader.teacherName || displayName(profile, "Teacher"),
+      crName: reportHeader.crName || crName.trim() || "N/A",
+      subjectName: reportHeader.subjectName || "Lecture",
+      subjectCode: reportHeader.subjectCode ?? undefined,
+      className: reportHeader.className || reportHeader.classSectionId,
+      startedAt: reportHeader.startedAt,
+      endedAt: reportHeader.endedAt || new Date().toISOString(),
+    };
+  }, [reportHeader, crName, profile]);
+
+  const exportRows: AttendanceExportRow[] = useMemo(() => {
+    if (!report || !headerInfo) return [];
+    return toExportRows(report.rows, {
+      className: headerInfo.className,
+      subject: headerInfo.subjectName,
+    });
+  }, [report, headerInfo]);
+
+  function reportTitle(): string {
+    if (!headerInfo) return "Attendance_Report";
+    return `Attendance_${(headerInfo.className || "Class").replace(/\s+/g, "_")}`;
+  }
+
+  async function confirmStopAndGenerate() {
+    if (!report || !headerInfo) return;
+    setReportBusy(true);
+    try {
+      await autoSaveAndShareReport(exportRows, headerInfo, report.session.id);
       setReportGenerated(true);
-      setGeneratingReport(false);
-
-      toast.success("📋 Attendance reports generated and downloaded!", {
-        description: result.appwriteWordUrl
-          ? "Files also saved to Appwrite cloud storage."
-          : "Files saved to your device.",
+      toast.success("Attendance reports saved to your device", {
+        description: `Excel (.csv) and Word (.doc) written for ${report.presentCount} of ${report.totalCount} students.`,
         duration: 5000,
       });
     } catch (err) {
       console.error("Report generation error:", err);
-      setGeneratingReport(false);
-      toast.error("Failed to generate report. Session still active.");
+      toast.error("Failed to generate the report files. The session is stopped; PDF still works.");
+    } finally {
+      setReportBusy(false);
     }
   }
 
-  function closeReportDialogAndReset() {
-    setShowEndReportDialog(false);
-    setReportGenerated(false);
-    setSession(null);
-    setCrName("");
-    void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
+  function withPdf(
+    viewer: (rows: ReportRow[], header: SessionHeaderInfo, name: string) => { pageCount: number },
+  ) {
+    if (!report || !headerInfo) return;
+    try {
+      const result = viewer(report.rows, headerInfo, reportTitle());
+      toast.success(`PDF ready — ${result.pageCount} page${result.pageCount > 1 ? "s" : ""}`, {
+        description: `${report.totalCount} students on the sheet (${report.presentCount} present, ${report.absentCount} absent).`,
+      });
+    } catch (err) {
+      console.error("[attendance] pdf generation failed:", err);
+      toast.error("PDF generation failed on this device. Try Print instead.");
+    }
+  }
+
+  function openRosterDialog() {
+    const existing = (roster.data?.students ?? [])
+      .map((student) =>
+        [student.rollNumber ?? "", student.name, student.email ?? "", student.phone ?? ""].join(
+          ", ",
+        ),
+      )
+      .join("\n");
+    const fromDirectory = localStore
+      .getProfiles()
+      .filter((p) => p.role === "student")
+      .map((p) =>
+        [p.id, `${p.first_name} ${p.last_name}`.trim(), p.email, p.phone ?? ""].join(", "),
+      )
+      .join("\n");
+    setRosterDraft(existing || fromDirectory || "");
+    setRosterOpen(true);
+  }
+
+  async function saveRoster() {
+    const students = parseRoster(rosterDraft);
+    if (students.length === 0) {
+      toast.error("No students recognised — use one line per student: Roll, Name, Email, Phone.");
+      return;
+    }
+    const targetSection = activeSectionId;
+    if (!targetSection) {
+      toast.error("Choose a class section first.");
+      return;
+    }
+    setSavingRoster(true);
+    try {
+      const saved = await saveClassRoster({ data: { classSectionId: targetSection, students } });
+      if (!saved) {
+        toast.error("The server could not save the roster.");
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["class-roster", targetSection] });
+      setRosterOpen(false);
+      toast.success(`Roster saved — ${saved.students.length} students will appear in reports.`);
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not save the roster.");
+    } finally {
+      setSavingRoster(false);
+    }
   }
 
   if (!isStaff) {
@@ -521,7 +591,6 @@ function AttendancePage() {
             )}
           </div>
 
-          {/* CR Name Input */}
           <div className="space-y-2">
             <Label htmlFor="crName">CR (Class Representative) Name</Label>
             <Input
@@ -531,6 +600,22 @@ function AttendancePage() {
               placeholder="Enter CR name (optional)"
               disabled={Boolean(session)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Class roster</Label>
+              <Badge variant={rosterStudents.length > 0 ? "secondary" : "outline"}>
+                {rosterStudents.length > 0 ? `${rosterStudents.length} students` : "not set"}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The roster is what puts absent students in the PDF. Without it the report can only
+              list whoever scanned.
+            </p>
+            <Button variant="outline" size="sm" className="w-full gap-2" onClick={openRosterDialog}>
+              <ClipboardList className="size-4" /> Edit roster
+            </Button>
           </div>
 
           {session ? (
@@ -545,16 +630,22 @@ function AttendancePage() {
               <Button
                 variant="destructive"
                 className="w-full gap-2"
-                onClick={() => void endSession()}
+                onClick={() => void stopAndReport()}
+                disabled={reportBusy}
               >
-                <Square className="size-4" /> Stop QR & Generate Report
+                {reportBusy ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Square className="size-4" />
+                )}
+                Stop QR & Generate Report
               </Button>
             </div>
           ) : (
             <Button
               className="w-full gap-2"
               onClick={() => void startSession()}
-              disabled={starting}
+              disabled={starting || reportBusy}
             >
               {starting ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -566,9 +657,9 @@ function AttendancePage() {
           )}
 
           <div className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-            Each code is signed for a single second and verified on the server, so a shared photo of
-            the QR expires before it can be reused. Teachers can also scan student QR codes to
-            approve.
+            Each code is signed for a single second and verified on the server against the
+            session&apos;s secret, so a shared photo of the QR expires before it can be reused.
+            Teachers can also scan a student&apos;s personal code to approve them.
           </div>
         </section>
 
@@ -583,9 +674,16 @@ function AttendancePage() {
                 Refreshing every second
               </Badge>
               <p className="text-center text-sm text-muted-foreground">
-                {selectedSection?.name ?? "Class"} · {present.data?.length ?? 0} marked present
+                {session.className ?? "Class"} · {presentCount} marked present
+                {rosterStudents.length > 0 ? ` of ${rosterStudents.length} enrolled` : ""}
               </p>
             </>
+          ) : session ? (
+            <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-destructive">
+              <AlertTriangle className="size-10" />
+              This page is not served over HTTPS or localhost, so the browser will not sign the QR
+              codes. Attendance can only be marked from a secure origin.
+            </div>
           ) : (
             <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
               <QrCode className="size-10 text-muted-foreground/50" />
@@ -595,27 +693,171 @@ function AttendancePage() {
         </section>
       </div>
 
+      {session ? (
+        <section className="mt-6 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Users className="size-4 text-primary" />
+              <h2 className="text-lg font-semibold">Present students</h2>
+              <Badge variant="outline">{presentCount}</Badge>
+              {rosterStudents.length > 0 ? (
+                <Badge variant="outline" className="text-muted-foreground">
+                  {Math.max(0, rosterStudents.length - presentCount)} absent
+                </Badge>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                disabled={!present.data || present.data.length === 0}
+                onClick={() => void openReportFor(session.id)}
+              >
+                <FileText className="size-3.5 text-blue-600" /> Preview report / PDF
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                disabled={present.isLoading}
+                onClick={() => void present.refetch()}
+              >
+                <RefreshCcw className="size-3.5" /> Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {present.isLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : present.data && present.data.length > 0 ? (
+              present.data.map((row) => (
+                <article
+                  key={row.studentId}
+                  className="surface-card flex flex-wrap items-center gap-x-4 gap-y-1 p-4"
+                >
+                  <p className="font-medium">{row.studentName}</p>
+                  <p className="text-sm text-muted-foreground">Roll {row.rollNumber ?? "—"}</p>
+                  <p className="text-sm text-muted-foreground">{row.email ?? "—"}</p>
+                  <p className="text-sm text-muted-foreground">{row.phone ?? "—"}</p>
+                  <Badge variant="secondary" className="ml-auto text-xs">
+                    {row.status}
+                  </Badge>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(row.markedAt).toLocaleTimeString()}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <div className="surface-card p-6 text-center text-sm text-muted-foreground">
+                Waiting for the first scan… students who mark attendance appear here within a
+                second, from any device.
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-6 space-y-3">
+        <div className="flex items-center gap-2">
+          <History className="size-4 text-primary" />
+          <h2 className="text-lg font-semibold">Recent sessions</h2>
+        </div>
+        <div className="space-y-2">
+          {history.isLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : history.data && history.data.length > 0 ? (
+            history.data.map((row) => (
+              <article
+                key={row.id}
+                className="surface-card flex flex-wrap items-center gap-x-4 gap-y-2 p-4"
+              >
+                <p className="font-medium">{row.subjectName ?? "Session"}</p>
+                <p className="text-sm text-muted-foreground">
+                  {row.className ?? row.classSectionId}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(row.startedAt).toLocaleString()}
+                </p>
+                <Badge variant={row.isActive ? "default" : "outline"} className="text-xs">
+                  {row.isActive ? "Live" : "Stopped"}
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto gap-1.5 text-xs"
+                  disabled={reportBusy}
+                  onClick={() => void openReportFor(row.id)}
+                >
+                  <FileText className="size-3.5" /> View report / PDF
+                </Button>
+              </article>
+            ))
+          ) : (
+            <div className="surface-card p-6 text-center text-sm text-muted-foreground">
+              No sessions recorded on this server yet.
+            </div>
+          )}
+        </div>
+      </section>
+
       <QrScannerDialog
         open={approvalScannerOpen}
         onOpenChange={(open) => {
           setApprovalScannerOpen(open);
-          if (!open) {
-            void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
+          if (!open && session) {
+            void queryClient.invalidateQueries({ queryKey: ["attendance-records", session.id] });
           }
         }}
         sessionId={session?.id || undefined}
+        audience="staff"
         title="Approve Student Attendance"
-        description="Scan a student's personal approval QR code or enter their token to approve their attendance."
+        description="Scan a student's personal QR code, scan their roll-number slip, or type the roll number to approve attendance."
       />
 
-      {/* End Session Report Dialog */}
+      <Dialog open={rosterOpen} onOpenChange={setRosterOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="size-5 text-primary" />
+              Class roster
+            </DialogTitle>
+            <DialogDescription>
+              One student per line: <code>Roll, Name, Email, Phone</code>. Email and phone are
+              optional. Every line becomes a row in the attendance PDF, Present or Absent.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={rosterDraft}
+            onChange={(e) => setRosterDraft(e.target.value)}
+            className="min-h-56 font-mono text-xs"
+            placeholder={"CS-2024-001, Rahul Sharma, rahul@campus.edu, +91 98765 43210"}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRosterOpen(false)}>
+              Cancel
+            </Button>
+            <Button className="gap-2" onClick={() => void saveRoster()} disabled={savingRoster}>
+              {savingRoster ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              Save roster
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
-        open={showEndReportDialog}
+        open={reportOpen}
         onOpenChange={(open) => {
-          if (!open && reportGenerated) {
-            closeReportDialogAndReset();
-          } else if (!open && !generatingReport) {
-            setShowEndReportDialog(false);
+          if (!open) {
+            setReportOpen(false);
+            setReportGenerated(false);
+            void queryClient.invalidateQueries({ queryKey: ["session-history"] });
           }
         }}
       >
@@ -623,249 +865,182 @@ function AttendancePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="size-5 text-primary" />
-              {reportGenerated ? "Reports Generated!" : "End Session & Generate Reports"}
+              {reportGenerated ? "Reports generated" : "End session & generate reports"}
             </DialogTitle>
             <DialogDescription>
-              {reportGenerated
-                ? "Attendance reports have been downloaded to your device."
-                : "Confirm session details. Excel and Word reports will be auto-generated and saved."}
+              {report
+                ? `${report.presentCount} present, ${report.absentCount} absent of ${report.totalCount} on the sheet.`
+                : "Loading the attendance sheet from the server…"}
             </DialogDescription>
           </DialogHeader>
 
-          {!reportGenerated ? (
-            <div className="space-y-4 pt-2">
-              {/* Session Summary */}
-              <div className="rounded-xl border bg-muted/30 p-4 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">👨‍🏫 Teacher:</span>
-                  <span className="font-medium">{displayName(profile, "Teacher")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">📚 Subject:</span>
-                  <span className="font-medium">
-                    {selectedSubject?.name || "Lecture"}
-                    {selectedSubject?.code ? ` (${selectedSubject.code})` : ""}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">🏫 Class:</span>
-                  <span className="font-medium">
-                    {selectedSection?.name || "Class"} · Sem {selectedSection?.semester || "—"}
-                    {selectedSection?.section || ""}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">🕐 Started:</span>
-                  <span className="font-medium">
-                    {session?.started_at ? new Date(session.started_at).toLocaleString() : "—"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">👥 Present:</span>
-                  <span className="font-semibold text-emerald-600">
-                    {present.data?.length ?? 0} students
-                  </span>
-                </div>
-              </div>
-
-              {/* CR Name Input (editable before confirm) */}
-              <div className="space-y-1.5">
-                <Label htmlFor="crNameReport">🎓 CR (Class Representative) Name</Label>
-                <Input
-                  id="crNameReport"
-                  value={crName}
-                  onChange={(e) => setCrName(e.target.value)}
-                  placeholder="Enter CR name for the report header"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  className="flex-1 gap-1.5"
-                  onClick={() => setShowEndReportDialog(false)}
-                  disabled={generatingReport}
-                >
-                  <X className="size-4" /> Cancel
-                </Button>
-                <Button
-                  className="flex-1 gap-1.5"
-                  onClick={() => void confirmEndAndGenerateReport()}
-                  disabled={generatingReport}
-                >
-                  {generatingReport ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Download className="size-4" />
-                  )}
-                  {generatingReport ? "Generating..." : "Stop & Download Reports"}
-                </Button>
-              </div>
+          {!report ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Loading…
             </div>
           ) : (
             <div className="space-y-4 pt-2">
-              {/* Success State */}
-              <div className="flex flex-col items-center gap-3 py-4">
-                <div className="flex size-14 items-center justify-center rounded-full bg-emerald-100">
-                  <Check className="size-7 text-emerald-600" />
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-2 text-sm">
+                <SummaryRow label="Teacher" value={headerInfo?.teacherName ?? "—"} />
+                <SummaryRow
+                  label="Subject"
+                  value={`${headerInfo?.subjectName ?? "Lecture"}${headerInfo?.subjectCode ? ` (${headerInfo.subjectCode})` : ""}`}
+                />
+                <SummaryRow label="Class" value={headerInfo?.className ?? "—"} />
+                <SummaryRow
+                  label="Started"
+                  value={new Date(headerInfo?.startedAt ?? Date.now()).toLocaleString()}
+                />
+                <SummaryRow
+                  label="Ended"
+                  value={
+                    headerInfo?.endedAt
+                      ? new Date(headerInfo.endedAt).toLocaleString()
+                      : "still running"
+                  }
+                />
+                <SummaryRow label="CR" value={headerInfo?.crName ?? "N/A"} />
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Attendance</span>
+                  <span className="font-semibold text-emerald-600">
+                    {report.presentCount} present · {report.absentCount} absent
+                  </span>
                 </div>
-                <p className="text-center text-sm text-muted-foreground">
-                  Excel (.csv) and Word (.doc) reports have been downloaded to your device
-                  automatically.
-                </p>
               </div>
 
-              {/* Quick Share Actions */}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 gap-1.5 text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
-                  onClick={() => {
-                    const headerInfo = buildHeaderInfo();
-                    void shareAttendance(
-                      buildExportRows(),
-                      `Class ${headerInfo.className}`,
-                      headerInfo,
-                    );
-                  }}
-                >
-                  <Share2 className="size-3.5 text-emerald-600" /> Share to WhatsApp
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 gap-1.5 text-xs"
-                  onClick={() => {
-                    const headerInfo = buildHeaderInfo();
-                    exportToPdf(buildExportRows(), `Class ${headerInfo.className}`, headerInfo);
-                  }}
-                >
-                  <Printer className="size-3.5 text-blue-600" /> Print PDF
-                </Button>
-              </div>
+              {!reportGenerated ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="crNameReport">CR (Class Representative) Name</Label>
+                  <Input
+                    id="crNameReport"
+                    value={crName}
+                    onChange={(e) => setCrName(e.target.value)}
+                    placeholder="Enter CR name for the report header"
+                  />
+                </div>
+              ) : null}
 
-              <Button className="w-full gap-1.5" onClick={closeReportDialogAndReset}>
+              {!reportGenerated ? (
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-1.5"
+                    onClick={() => setReportOpen(false)}
+                    disabled={reportBusy}
+                  >
+                    <X className="size-4" /> Close
+                  </Button>
+                  <Button
+                    className="flex-1 gap-1.5"
+                    onClick={() => void confirmStopAndGenerate()}
+                    disabled={reportBusy}
+                  >
+                    {reportBusy ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Download className="size-4" />
+                    )}
+                    Download Excel + Word
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button className="flex-1 gap-1.5" onClick={() => withPdf(saveAttendancePdf)}>
+                    <Download className="size-4" /> Download PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 gap-1.5"
+                    onClick={() => withPdf(openAttendancePdf)}
+                  >
+                    <FileText className="size-4 text-blue-600" /> View PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() =>
+                      exportToPdf(
+                        exportRows,
+                        `Class ${headerInfo?.className ?? ""}`,
+                        headerInfo ?? undefined,
+                      )
+                    }
+                  >
+                    <Printer className="size-3.5 text-blue-600" /> Print
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() =>
+                      exportToExcel(exportRows, reportTitle(), headerInfo ?? undefined)
+                    }
+                  >
+                    <FileSpreadsheet className="size-3.5 text-emerald-600" /> Excel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                    onClick={() =>
+                      void shareAttendance(
+                        exportRows,
+                        `Class ${headerInfo?.className ?? "Campus ERP"}`,
+                        headerInfo ?? undefined,
+                      )
+                    }
+                  >
+                    <Share2 className="size-3.5 text-emerald-600" /> WhatsApp
+                  </Button>
+                </div>
+              )}
+
+              <Button
+                variant="ghost"
+                className="w-full gap-1.5"
+                onClick={() => setReportOpen(false)}
+              >
                 <Check className="size-4" /> Done
               </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
-
-      {session ? (
-        <section className="mt-6 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Users className="size-4 text-primary" />
-              <h2 className="text-lg font-semibold">Present students</h2>
-              <Badge variant="outline">{present.data?.length ?? 0}</Badge>
-            </div>
-
-            {(present.data ?? []).length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs"
-                  onClick={() => {
-                    const headerInfo = buildHeaderInfo();
-                    exportToExcel(
-                      buildExportRows(),
-                      selectedSection?.name ? `Attendance_${selectedSection.name}` : "Attendance",
-                      headerInfo,
-                    );
-                  }}
-                >
-                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel (.csv)
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs"
-                  onClick={() => {
-                    const headerInfo = buildHeaderInfo();
-                    exportToPdf(
-                      buildExportRows(),
-                      selectedSection?.name
-                        ? `Class ${selectedSection.name}`
-                        : "Lecture Attendance",
-                      headerInfo,
-                    );
-                  }}
-                >
-                  <Printer className="size-3.5 text-blue-600" /> Export PDF / Print
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
-                  onClick={() => {
-                    const headerInfo = buildHeaderInfo();
-                    void shareAttendance(
-                      buildExportRows(),
-                      selectedSection?.name
-                        ? `Class ${selectedSection.name}`
-                        : "Lecture Attendance",
-                      headerInfo,
-                    );
-                  }}
-                >
-                  <Share2 className="size-3.5 text-emerald-600" /> Share to WhatsApp
-                </Button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="space-y-2">
-            {(present.data ?? []).length === 0 ? (
-              <div className="surface-card p-6 text-center text-sm text-muted-foreground">
-                Waiting for the first scan…
-              </div>
-            ) : (
-              (present.data ?? []).map((row) => (
-                <article
-                  key={row.id}
-                  className="surface-card flex flex-wrap items-center gap-x-4 gap-y-1 p-4"
-                >
-                  <p className="font-medium">{row.name}</p>
-                  <p className="text-sm text-muted-foreground">Roll {row.roll}</p>
-                  <p className="text-sm text-muted-foreground">{row.email}</p>
-                  <p className="text-sm text-muted-foreground">{row.phone}</p>
-                  <Badge variant="secondary" className="ml-auto text-xs">
-                    {row.status || "Approved"}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(row.markedAt).toLocaleTimeString()}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-primary hover:bg-primary/10"
-                    onClick={() => {
-                      const subjectName =
-                        subjects.data?.find((s) => s.id === subjectId)?.name || "Lecture";
-                      notifyTeacherFromCR(
-                        displayName(profile),
-                        row.name,
-                        subjectName,
-                        "Verified by CR",
-                      );
-                      toast.success(`Updated status for ${row.name}`);
-                      toast.info(`Teacher automatically notified of CR attendance update.`);
-                      void queryClient.invalidateQueries({ queryKey: ["attendance-present"] });
-                    }}
-                  >
-                    Edit / Verify
-                  </Button>
-                </article>
-              ))
-            )}
-          </div>
-        </section>
-      ) : null}
     </AppShell>
   );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <span className="text-muted-foreground">{label}:</span>
+      <span className="font-medium truncate">{value}</span>
+    </div>
+  );
+}
+
+/** Parses "Roll, Name, Email, Phone" lines into roster students. */
+function parseRoster(draft: string) {
+  return draft
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [first = "", second = "", third = "", fourth = ""] = line
+        .split(/[,;\t]/)
+        .map((cell) => cell.trim());
+      const looksLikeRoll = /^[A-Za-z0-9/_-]+$/.test(first) && /\d/.test(first);
+      const roll = looksLikeRoll ? first : "";
+      const name = looksLikeRoll ? second || first : first;
+      return {
+        studentId: `roll:${(roll || name || line).toUpperCase().replace(/\s+/g, "-")}`,
+        name: name || roll || line,
+        rollNumber: roll || null,
+        email: third || null,
+        phone: fourth || null,
+      };
+    })
+    .filter((student) => student.name.length > 0)
+    .slice(0, 500);
 }

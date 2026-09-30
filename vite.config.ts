@@ -20,6 +20,9 @@ export default defineConfig({
         registerType: "autoUpdate",
         injectRegister: null,
         filename: "sw.js",
+        // Nitro emits the deployable client to .output/public, not dist — without
+        // this the generated sw.js is left out of the build artifact and /sw.js 404s.
+        outDir: ".output/public",
         devOptions: { enabled: false },
         manifest: {
           name: "Campus ERP — Smart Attendance",

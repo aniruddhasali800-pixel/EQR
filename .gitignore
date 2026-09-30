@@ -30,3 +30,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Self-hosted server config (see DEPLOYMENT.md) — contains secrets
+.env.server
+.env.production.local
+
+# Docker/nginx runtime
+deploy/nginx/certs/*
+!deploy/nginx/certs/.gitkeep
+
+# Local attendance store (DATA_DIR default when running without Docker)
+.data/

@@ -85,7 +85,7 @@ export async function saveAttendanceRecord(data: AppwriteRecordData): Promise<bo
  */
 export async function uploadAttendanceReport(
   file: File,
-  metadata?: { sessionId?: string; type?: string },
+  metadata?: { sessionId?: string | undefined; type?: string | undefined },
 ): Promise<string | null> {
   if (!isAppwriteConfigured()) {
     console.info("[Appwrite] Not configured — report saved to device only.");

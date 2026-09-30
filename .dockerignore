@@ -1,0 +1,17 @@
+node_modules
+.output
+dist
+.vinxi
+.nitro
+.wrangler
+.tanstack
+.env.production.local
+.env.server
+*.log
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
+supabase/.temp
+.data
