@@ -4,9 +4,11 @@
  * must always fetch fresh HTML. `?sw=off` acts as a kill switch.
  */
 import { toast } from "sonner";
+import { APP_BUILD_ID } from "@/lib/build-info";
 
 const SW_URL = "/sw.js";
 const RELOAD_KEY = "cerp-sw-reload-at";
+const BUILD_RELOAD_KEY = "cerp-build-reload-to";
 const RELOAD_COOLDOWN_MS = 60_000;
 const UPDATE_POLL_MS = 5 * 60_000;
 
@@ -74,6 +76,29 @@ function reloadWhenUpdated(registration: ServiceWorkerRegistration): void {
     void registration.update().catch(() => undefined);
   }, UPDATE_POLL_MS);
   window.addEventListener("pagehide", () => window.clearInterval(pollId), { once: true });
+}
+
+/**
+ * Compare this bundle's build with the one the server is running. A host that cannot serve
+ * /sw.js has no worker to update an open tab, so the teacher's projector would sit on an old
+ * build indefinitely and keep minting QR codes no student can use.
+ *
+ * Returns "reloading" when it has started a reload, "stuck" when a reload already ran and the
+ * server is still handing out the older bundle (a cache in front of the app, not something the
+ * page can fix by reloading again), and "current" otherwise.
+ */
+export function reconcileBuild(serverBuildId: string): "current" | "reloading" | "stuck" {
+  if (typeof window === "undefined") return "current";
+  if (!APP_BUILD_ID || !serverBuildId || serverBuildId === "unknown") return "current";
+  if (serverBuildId === APP_BUILD_ID) return "current";
+  if (sessionStorage.getItem(BUILD_RELOAD_KEY) === serverBuildId) return "stuck";
+
+  sessionStorage.setItem(BUILD_RELOAD_KEY, serverBuildId);
+  toast.info("This screen is on an older build — reloading it now.", {
+    description: `The server is running ${serverBuildId.slice(0, 7)}.`,
+  });
+  window.location.reload();
+  return "reloading";
 }
 
 export function registerServiceWorker() {

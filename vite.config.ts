@@ -4,8 +4,30 @@
 //     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
 //     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
+import { execSync } from "node:child_process";
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { VitePWA } from "vite-plugin-pwa";
+
+/**
+ * Baked into both bundles so a running tab can tell whether the server is on a newer build.
+ * A teacher's projector tab is opened once and left open, and hosts that cannot serve /sw.js
+ * have no worker to update it — without this they keep minting QR codes nobody can scan.
+ */
+function buildId(): string {
+  const fromHost =
+    process.env["VERCEL_GIT_COMMIT_SHA"] ??
+    process.env["CF_PAGES_COMMIT_SHA"] ??
+    process.env["COMMIT_SHA"] ??
+    process.env["GITHUB_SHA"];
+  if (fromHost) return fromHost.slice(0, 12);
+  try {
+    return execSync("git rev-parse --short=12 HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 export default defineConfig({
   tanstackStart: {
@@ -14,6 +36,7 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    define: { __APP_BUILD__: JSON.stringify(buildId()) },
     plugins: [
       VitePWA({
         strategies: "generateSW",

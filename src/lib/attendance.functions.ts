@@ -13,6 +13,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseStudentToken, verifyToken } from "@/lib/qr-token";
+import { APP_BUILD_ID } from "@/lib/build-info";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -108,13 +109,21 @@ export const getActiveSessionForTeacher = createServerFn({ method: "POST" })
     return session;
   });
 
-/** Whether the server still accepts scans for this exact session. `null` means it never had it. */
+/**
+ * Whether the server still accepts scans for this exact session, plus the server's build id: a
+ * tab opened before a deploy has no other way to notice, and on the teacher's projector that
+ * means a QR every student in the room fails to mark.
+ */
 export const getSessionStatus = createServerFn({ method: "POST" })
   .validator(z.object({ sessionId: z.string().trim().min(1).max(120) }))
-  .handler(async ({ data }): Promise<{ isActive: boolean } | null> => {
+  .handler(async ({ data }): Promise<{ exists: boolean; isActive: boolean; buildId: string }> => {
     const s = await store();
     const session = await s.getSession(data.sessionId);
-    return session ? { isActive: session.isActive } : null;
+    return {
+      exists: Boolean(session),
+      isActive: session?.isActive ?? false,
+      buildId: APP_BUILD_ID,
+    };
   });
 
 /** Only this teacher's own sessions, so a shared server does not expose other classes. */

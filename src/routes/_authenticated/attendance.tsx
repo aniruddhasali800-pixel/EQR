@@ -58,6 +58,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, displayName } from "@/lib/auth";
 import { buildToken, currentTick } from "@/lib/qr-token";
+import { reconcileBuild } from "@/lib/pwa";
 import { localStore } from "@/lib/local-store";
 import type { AttendanceSession, ReportRow } from "@/lib/attendance-types";
 import type { AttendanceReport } from "@/lib/attendance.functions";
@@ -247,14 +248,27 @@ function AttendancePage() {
     if (!session) return;
     const sessionId = session.id;
     let cancelled = false;
+    let stuckWarned = false;
 
     const check = async () => {
       try {
         const status = await getSessionStatus({ data: { sessionId } });
-        if (cancelled || status?.isActive) return;
+        if (cancelled) return;
+        const build = reconcileBuild(status.buildId);
+        if (build === "reloading") return;
+        if (build === "stuck") {
+          if (!stuckWarned) {
+            stuckWarned = true;
+            toast.error(
+              "This screen is still on an older build after reloading, so something in front of the server is caching the app. Students cannot mark attendance from this QR until that clears.",
+            );
+          }
+          return;
+        }
+        if (status.exists && status.isActive) return;
         setSession(null);
         toast.error(
-          status
+          status.exists
             ? "This session has been stopped, so the QR on screen can no longer mark attendance."
             : "The server no longer hosts this session. Start it again before students scan.",
         );
