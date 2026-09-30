@@ -149,7 +149,7 @@ export const markAttendance = createServerFn({ method: "POST" })
       if (!sessionHint)
         return failure("invalid_token", "This is not a Campus ERP attendance QR code.");
       const signalled = await s.getSession(sessionHint);
-      if (!signalled) return unknownSession();
+      if (!signalled) return unknownSession(sessionHint);
       const verification = await verifyToken(signalled.secret, token);
       if (!verification.ok) {
         return failure(
@@ -168,7 +168,7 @@ export const markAttendance = createServerFn({ method: "POST" })
     }
 
     const session = await s.getSession(sessionId);
-    if (!session) return unknownSession();
+    if (!session) return unknownSession(sessionId);
     if (!session.isActive) {
       return failure(
         "session_ended",
@@ -281,7 +281,16 @@ export const markAttendance = createServerFn({ method: "POST" })
     };
   });
 
-function unknownSession(): MarkOutcome {
+function unknownSession(sessionId = ""): MarkOutcome {
+  // `sess_<epoch ms>` was the id format of the build that kept sessions in the teacher's own
+  // browser. A QR carrying it can never match a server session, and the person scanning it
+  // cannot fix that — the stale device has to reload, so say so instead of a dead end.
+  if (/^sess_\d{10,}/i.test(sessionId)) {
+    return failure(
+      "unknown_session",
+      "That QR was drawn by an out-of-date copy of the app that kept the session on the teacher's own device. Reload the teacher's screen — a hard refresh, or close and reopen the installed app — start the session again, then scan.",
+    );
+  }
   return failure(
     "unknown_session",
     "This attendance session is not on the server. Start it again from the teacher's device.",
