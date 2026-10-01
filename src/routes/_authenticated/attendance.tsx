@@ -61,11 +61,12 @@ import { buildToken, currentTick } from "@/lib/qr-token";
 import { reconcileBuild } from "@/lib/pwa";
 import { localStore } from "@/lib/local-store";
 import type { AttendanceSession, ReportRow } from "@/lib/attendance-types";
-import type { AttendanceReport } from "@/lib/attendance.functions";
+import type { AttendanceHealth, AttendanceReport } from "@/lib/attendance.functions";
 import {
   buildAttendanceReport,
   endAttendanceSession,
   getActiveSessionForTeacher,
+  getAttendanceHealth,
   getClassRoster,
   getSessionStatus,
   listAttendance,
@@ -125,6 +126,10 @@ function AttendancePage() {
   // Which server this page actually talks to. A teacher projecting a QR from one host while
   // students scan against another is indistinguishable from a broken scan without this.
   const [servedFrom, setServedFrom] = useState("");
+  // Whether that server can persist anything. A host with a read-only disk and no database
+  // refuses to open a session, and the teacher needs to know before projecting, not after
+  // thirty students fail to mark.
+  const [storage, setStorage] = useState<AttendanceHealth | null>(null);
 
   // Reports stay openable after the session stops: they key off the session id, not live state.
   const [reportOpen, setReportOpen] = useState(false);
@@ -222,6 +227,24 @@ function AttendancePage() {
 
   useEffect(() => {
     setServedFrom(window.location.host);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      void getAttendanceHealth()
+        .then((health) => {
+          if (!cancelled) setStorage(health);
+        })
+        .catch(() => undefined);
+    };
+    check();
+    // Refocusing picks up a deployment that was given a database while this tab sat open.
+    window.addEventListener("focus", check);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", check);
+    };
   }, []);
 
   // Reload mid-lecture must not orphan a live QR: ask the server what this teacher is hosting.
@@ -406,7 +429,12 @@ function AttendancePage() {
         },
       });
       if (!created) {
-        toast.error("The server could not open the session. Attendance will not be recorded.");
+        const health = await getAttendanceHealth().catch(() => null);
+        if (health) setStorage(health);
+        toast.error(
+          health?.detail ??
+            "The server could not open the session. Attendance will not be recorded.",
+        );
         return;
       }
       setSession(created);
@@ -674,6 +702,16 @@ function AttendancePage() {
             </Button>
           </div>
 
+          {storage?.backend === "none" && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {storage.detail} Nobody can mark attendance from this address until that is
+                configured, so starting a session now would only produce a code that fails.
+              </span>
+            </div>
+          )}
+
           {session ? (
             <div className="space-y-2">
               <Button
@@ -734,8 +772,12 @@ function AttendancePage() {
                 {rosterStudents.length > 0 ? ` of ${rosterStudents.length} enrolled` : ""}
               </p>
               <p className="text-center text-xs text-muted-foreground/70">
-                Codes are verified by <span className="font-mono">{servedFrom}</span> — students
-                must have the app open from that same address.
+                Codes are verified by <span className="font-mono">{servedFrom}</span> and marks are
+                saved in{" "}
+                {storage?.backend === "supabase"
+                  ? "the school database"
+                  : "this server's own data volume"}{" "}
+                — students must have the app open from that same address.
               </p>
             </>
           ) : session ? (

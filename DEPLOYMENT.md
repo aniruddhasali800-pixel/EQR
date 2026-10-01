@@ -18,8 +18,9 @@ browser / installed PWA
 ```
 
 QR attendance is the exception to "nothing is stored on the server": sessions,
-scans and class rosters are written to `DATA_DIR` (default `/data`) as JSON, and
-mirrored to Supabase when the mirror is configured. See section 9.
+scans and class rosters are written server-side, into Supabase when that project is
+configured and reachable and otherwise into `DATA_DIR` (default `/data`) as JSON.
+See section 9 — it also covers why a serverless host (Vercel) has to use Supabase.
 
 The split matters: Nitro answers static requests with a `Content-Length` it baked
 while bundling the server, but `vite-plugin-pwa` rewrites `sw.js` after that
@@ -195,12 +196,57 @@ location / { proxy_pass http://127.0.0.1:3000; }
 Serving `sw.js` from disk is not optional here: the Node server would answer it
 with a stale `Content-Length` and browsers would reject the truncated worker.
 
-## 9. Attendance data: where it lives, backups, and the single-writer rule
+## 9. Attendance data: which store the server picks
 
-QR attendance is written server-side to `DATA_DIR/attendance.json` (in Docker that
-is the `eqr-data` named volume, mounted at `/data`). Sessions, scans and class
-rosters all go through one serialized writer; the process also caches the file in
-memory for its lifetime, so it never re-reads another process's writes.
+`src/lib/attendance-store.server.ts` chooses a backend **once per process** (first
+`storeHealth()` call) and then keeps it, so a flaky database can never move a live
+lecture between two stores. The order is:
+
+| Order | Backend | Chosen when | Where the rows live |
+| --- | --- | --- | --- |
+| 1 | `supabase` | `SUPABASE_URL` + a service-role key are set **and** a real read of `erp_attendance_sessions` succeeds | Supabase `erp_attendance_*` tables |
+| 2 | `file` | The database is absent or unhealthy and `DATA_DIR` is writable | `DATA_DIR/attendance.json` (`/data` in Docker) |
+| 3 | `none` | Neither works | Nothing — the server **refuses to open a session** |
+
+`none` is deliberate. A projected QR that cannot record anything costs a whole class
+period; a red banner on the teacher's screen costs a restart. With no usable store,
+*Start live QR* shows the exact gap ("…no SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+configured, and the server cannot write /data (EROFS)…"), and the same text comes
+back from the `getAttendanceHealth` server function, which the teacher page also
+re-checks on window focus.
+
+### Serverless hosts (Vercel and friends): Supabase is mandatory
+
+Do not deploy attendance to a host that gives you no writable, shared disk. Vercel
+unpacks the build into a read-only code directory and each instance gets its own
+ephemeral `/tmp`, so the JSON file is one cold start's private cache — two devices
+(or two requests routed to two instances) never see the same session, which is
+exactly where "I scanned but nothing was marked" came from. Only two backend-1
+variables make it work:
+
+1. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` — project settings → Environment
+   Variables, for the **Production** (and Preview) environments, then redeploy.
+   Runtime values: no rebuild of the browser bundle is needed.
+2. The tables — paste
+   `supabase/migrations/20260930090000_attendance_mirror_tables.sql` into the
+   Supabase dashboard's SQL editor and run it once. It creates
+   `erp_attendance_sessions` (including the `secret` column the QR is signed with),
+   `erp_attendance_records` and `erp_attendance_roster`, turns RLS on, and grants
+   them to `service_role` only. An existing database is upgraded in place: the file
+   is idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`).
+
+Without step 2 the health probe fails, the store reports `none`, and the teacher sees
+a message naming that migration file instead of a silently dead QR. Read the
+deployment's env list before assuming this is configured: a project that still shows
+a URL or key containing `placeholder` is treated as unset.
+
+Because Supabase is shared, one serverless deployment can run many instances safely —
+that is the backend to use when you cannot control the filesystem.
+
+### File backend: the single-writer rule and backups
+
+Sessions, scans and rosters go through one serialized writer, and the process caches
+the file in memory for its lifetime, so it never re-reads another process's writes.
 
 **Run exactly one `app` process.** Two Node servers — two containers, two replicas,
 a systemd unit plus a manual `node .output/server/index.mjs` — each keep their own
@@ -215,29 +261,18 @@ docker run --rm -v campus-erp_eqr-data:/d -v "$PWD":/out alpine cp /d/attendance
 ```
 
 The file is small (a few KB per class per day) and human-readable; the atomic
-temp-write + rename means a `.json` copy is always a consistent snapshot.
+temp-write + rename means a `.json` copy is always a consistent snapshot. A store
+that cannot complete its disk write returns `null` rather than pretending the scan
+was saved.
 
-### Mirroring to Supabase (optional but recommended)
+### Mirroring the file store into Supabase (optional)
 
-The JSON store is the source of truth for the running app; Supabase gets a mirror so
-the data survives the container and can be queried by other tools. It is active only
-when all three hold:
-
-1. `SUPABASE_SERVICE_ROLE_KEY` is set in `.env.server`, together with `SUPABASE_URL`
-   (or `VITE_SUPABASE_URL`) — runtime values, so a restart is enough, no rebuild.
-   Any value still containing the word `placeholder` is treated as unset.
-2. The mirror tables exist: apply
-   `supabase/migrations/20260930090000_attendance_mirror_tables.sql` through the
-   Supabase CLI or the dashboard SQL editor. It creates the `erp_attendance_sessions`,
-   `erp_attendance_records` and `erp_attendance_roster` tables.
-3. The service-role key keeps its server-only placement. It bypasses row-level
-   security; putting it in any `VITE_*` variable ships it inside publicly
-   downloadable JavaScript.
-
-Mirroring is best-effort and non-blocking: if Supabase is unreachable the scan still
-succeeds and stays in `/data`, and the failure is logged as
-`[attendance mirror] upsert into <table> failed`. So a Supabase outage is never a
-reason attendance disappears.
+When the live backend is `file` *and* Supabase credentials are present, every
+session/record/roster write is additionally upserted into the same `erp_*` tables,
+best-effort and off the response path: a mirror failure logs
+`[attendance mirror] upsert into <table> failed` and the scan still succeeds, so a
+Supabase outage never eats attendance. When the credentials are healthy the store
+skips this entirely and uses Supabase as the source of truth (backend 1).
 
 Everything else is still hosted: generated report files in Appwrite storage,
 users and logins in Clerk. Schema history lives in `supabase/migrations/` — apply
@@ -264,16 +299,20 @@ through the Supabase CLI or the SQL editor, never from the container.
 
 | Symptom | Cause and fix |
 | --- | --- |
+| *Start live QR* does nothing and the toast/banner says "Attendance cannot be recorded…" | The picked backend is `none` (section 9): no usable database **and** no writable disk. On Vercel the disk is always unwritable, so add `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` to the project's environment and apply the `erp_attendance_*` migration — the banner text names whichever of the two is missing. |
 | Every page returns 500, log shows `@clerk/clerk-react: The publishableKey ... is invalid` | A bad `VITE_CLERK_PUBLISHABLE_KEY` was baked in at build time and SSR dies on it. Set the correct key and rebuild — a restart is not enough. |
 | PWA never offers "Install app", DevTools shows the worker as redundant | The response was served by Node with the stale `Content-Length`. Check `curl -sI http://<host>/sw.js` against the file size in `.output/public/sw.js`, and confirm the `web` container is the one answering. |
 | Browser still shows the old UI after a deploy | Two independent mechanisms fix this: the service worker reloads a long-open tab once the new build takes control, and — if the host cannot serve `/sw.js` at all — the teacher page compares its own baked-in commit id against the one `getSessionStatus` reports and reloads onto the server's build. Hard-reload to force it; `?sw=off` is the kill switch if the worker itself is the problem. |
 | Student scans and gets "This attendance session is not on the server", and the QR preview shows a `sess_…` id | The teacher's screen is an old cached bundle drawing QRs from a build that kept sessions in its own `localStorage`; the server has never seen that session id. Reload the teacher's device (hard refresh, or close and reopen the installed app) and start the session again. Both devices must run the same build for a scan to land. |
+| Scan says the session is not on the server even for a *fresh* QR, on Vercel | The file store is per-instance and ephemeral there, so the next request may hit a different cold instance. Point the deployment at Supabase (section 9); no amount of reloading fixes a store that only one instance can see. |
+| Mark Attendance returns "This session was created before the server stored its signing key" | A session opened by an older build has no `secret` column value. Stop it and start a new one; new sessions carry the secret and verify server-side. |
 | A `sess_…` QR survives a reload of the teacher's screen | The host is serving an old bundle, not the device. Check `curl -s https://<host>/attendance \| grep -o 'assets/index-[^"]*'` against `.output/public/assets/` in the build, and `curl -sI https://<host>/sw.js` — a 404 there means the deploy never ships the generated service worker, so nothing can update a client that is already installed. The in-app build check still reloads the teacher's tab; fix the host so phones installing the PWA can update too. |
 | Teacher's QR vanishes with "The server no longer hosts this session. Start it again before students scan." | The server restarted, or its data directory was wiped/reset — the session genuinely is not there any more. Start it again; the teacher page now polls every five seconds instead of projecting a QR no student can use. |
 | Teacher's QR vanishes with "This session has been stopped…" | Another device (or another tab) stopped that session. The QR on screen is finished; start a new session for the next batch. |
 | Data pages load but write nothing to Supabase | `SUPABASE_URL` / keys missing from `.env.server`, and the app fell back to its local-storage mode (`[Campus ERP] Running in Local Storage Mode` in the browser console). |
 | Scan succeeds but the name never appears in the attendance list | The Node process cannot write `DATA_DIR` (permission or disk full) — `docker compose logs app` shows `[attendance store] write failed`. The container expects `/data` owned by the app's non-root user. |
-| Marks vanish, or one teacher's sessions are invisible to another | Two `app` processes are sharing one `/data` (see section 9). Keep a single writer. |
+| Teacher's page says attendance is stored in a file "not in Supabase — …" | Supabase is configured but unhealthy, so the store fell back to the file. The rest of that sentence is the database's own error: a missing table names the migration file, `permission denied` means the key is not the service-role one. |
+| Marks vanish, or one teacher's sessions are invisible to another | Two `app` processes are sharing one `/data` (see section 9). Keep a single writer. Or the deployment is serverless and still on the file backend — switch to Supabase. |
 | "This QR code has expired. Scan the live code again." on a valid code | The QR tick is the server's clock, with 20 s of tolerance. A phone whose clock is minutes off will always fail; fix the device clock, not the app. |
 | *Mark Attendance* reports a failure for a student who is clearly in class | Their personal code or roll was typed with the wrong case/spaces, or the roster has no matching roll. The review step shows the exact payload before it is sent. |
 | *Download PDF* appears to do nothing in the installed PWA | Should no longer happen — the print-popup path was replaced by a real file save. If it recurs, check the browser console for `[attendance] pdf generation failed:`. |
@@ -309,7 +348,7 @@ run, and the nginx config has not been parsed by a live nginx):
 
 Same machine, same method: real `NITRO_PRESET=node_server` build, then the shipped
 server functions driven over HTTP against `node .output/server/index.mjs` with a
-clean `DATA_DIR` — 55 checks, all passing.
+clean `DATA_DIR` — 55 checks on the file store, all passing.
 
 - Teacher opens a session: id and signing secret are generated server-side and the
   session survives a page reload (`getActiveSessionForTeacher`).
@@ -355,3 +394,48 @@ page, so an unusable QR is never projected. Re-run of the same method on the new
   roster as Present/Absent. Re-read from `DATA_DIR/attendance.json` afterwards.
 - Every page (`/`, `/auth`, `/attendance`, `/dashboard`, `/settings`, `/sw.js`,
   `/manifest.webmanifest`) returns 200 from the built server.
+
+### Round: Supabase as the store, for hosts with no disk
+
+The teacher-side failure on `eqr-five.vercel.app` / `eqr.imp.mom` was infrastructure,
+not UI: both deployments served the newest bundle but carried no Supabase
+environment (their browser chunks still contained only the committed placeholder URL and
+key), so the store was the JSON file — and a Vercel instance cannot keep one.
+*Start live QR* therefore returned "The server could not open the session."
+
+The same HTTP method was re-run against a `node_server` build, 55 checks, all
+passing. The Supabase backend was driven against a local PostgREST stand-in that
+implements the exact endpoints, filters and `Prefer` headers `@supabase/postgrest-js`
+2.112.2 sends — so it validates this code's queries, not Supabase's own uptime:
+
+- File backend (22 checks): the whole scan loop plus every row re-read from
+  `attendance.json` on disk.
+- Supabase backend (24 checks): the same loop through `erp_attendance_*`, and the
+  point of the exercise — **two separate Node processes** reading that database saw
+  the same session and the same mark, which the file store cannot promise.
+- No credentials and no writable disk → backend `none`, the server refuses to open a
+  session, and the message names both gaps and the fix.
+- Credentials but no tables → backend `none`, and the text names
+  `supabase/migrations/20260930090000_attendance_mirror_tables.sql`.
+- Unhealthy database, writable disk → falls back to `file` and says so, rather than
+  silently storing attendance somewhere the school cannot query.
+
+Two real bugs surfaced only because the queries were executed instead of eyeballed:
+
+- `openSession` handed back the whole result *array* as if it were one row, so the
+  session reached the client with an empty signing secret — every scan from that QR
+  would have failed verification.
+- The health probe was a head-count, and `postgrest-js` turns a `404` with an empty
+  body into `204 / no error`, so a missing table looked healthy and the store would
+  have declared Supabase usable. It now runs a real `select("id").limit(1)`.
+
+`npx tsc --noEmit` clean, eslint clean on the changed files, and
+`NITRO_PRESET=node_server npm run build` exit 0 for the artifact above. That artifact
+was then smoke-tested as it will actually run (19 checks, all passing): a real
+`node .output/server/index.mjs` on a clean `DATA_DIR`, called through the shipped
+`/_serverFn/<id>` wire protocol — health reports the file store, a session comes back
+with a signing secret, a live rotating QR marks `Present`, a forged signature and a
+post-stop scan are both refused with no row written, a rescan dedupes, the report and
+`attendance.json` on disk contain the scan — and a second instance started with an
+unwritable `DATA_DIR` plus placeholder credentials reports backend `none`, names
+`SUPABASE_URL` and the migration file, and refuses to open a session at all.

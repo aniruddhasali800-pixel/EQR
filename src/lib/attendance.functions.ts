@@ -100,6 +100,23 @@ export const openAttendanceSession = createServerFn({ method: "POST" })
     );
   });
 
+/**
+ * Whether this server can record attendance at all, and where it keeps the records. A teacher who
+ * starts a session on a host with no usable store would otherwise project a QR that every student
+ * fails to mark, with nothing to explain why.
+ */
+export type AttendanceHealth = {
+  backend: "supabase" | "file" | "none";
+  detail: string;
+};
+
+export const getAttendanceHealth = createServerFn({ method: "POST" }).handler(
+  async (): Promise<AttendanceHealth> => {
+    const s = await store();
+    return s.storeHealth();
+  },
+);
+
 /** Lets a teacher reload the page mid-lecture without orphaning the live QR session. */
 export const getActiveSessionForTeacher = createServerFn({ method: "POST" })
   .validator(z.object({ teacherId: z.string().trim().min(1).max(120) }))
@@ -168,6 +185,14 @@ export const markAttendance = createServerFn({ method: "POST" })
         return failure("invalid_token", "This is not a Campus ERP attendance QR code.");
       const signalled = await s.getSession(sessionHint);
       if (!signalled) return unknownSession(sessionHint);
+      // Sessions mirrored before the secret column existed carry no key, and verifying a
+      // signature against an empty secret would accept a forged code.
+      if (!signalled.secret) {
+        return failure(
+          "invalid_token",
+          "This session was created before the server stored its signing key. Stop it and start a new one.",
+        );
+      }
       const verification = await verifyToken(signalled.secret, token);
       if (!verification.ok) {
         return failure(

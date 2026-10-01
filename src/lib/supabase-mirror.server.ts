@@ -1,28 +1,20 @@
 /**
  * Optional Supabase mirror for attendance data.
  *
- * The app's own store is the source of truth (see attendance-store.server.ts) because
- * local-auth user ids are not `auth.users` UUIDs and the deployed container may have no
- * Supabase credentials at all. When SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are both
- * present, every session/record/roster write is duplicated into the `erp_*` tables
- * created by supabase/migrations/20260930090000_*.sql so the school's database holds
- * the same rows. Mirroring is best-effort: a mirror failure logs and never blocks or
- * falsifies an attendance mark.
+ * The app's own store is the source of truth (see attendance-store.server.ts). When that store
+ * lives in Supabase this module never runs; it exists for the file-backed deployment on
+ * Docker/Node, where SUPABASE_URL + a secret key additionally duplicate every
+ * session/record/roster write into the `erp_*` tables created by
+ * supabase/migrations/20260930090000_*.sql, so the school's database holds the same rows.
+ * Mirroring is best-effort: a mirror failure logs and never blocks or falsifies an attendance
+ * mark.
  */
 
-function firstEnv(...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = process.env[key];
-    if (value && !value.includes("placeholder")) return value;
-  }
-  return undefined;
-}
+import { missingSupabaseEnv, supabaseSettings } from "./attendance-db.server";
 
 export function mirrorStatus(): { enabled: boolean; reason: string } {
-  const url = firstEnv("SUPABASE_URL", "VITE_SUPABASE_URL");
-  if (!url) return { enabled: false, reason: "SUPABASE_URL is not set" };
-  const key = firstEnv("SUPABASE_SERVICE_ROLE_KEY");
-  if (!key) return { enabled: false, reason: "SUPABASE_SERVICE_ROLE_KEY is not set" };
+  const settings = supabaseSettings();
+  if (!settings) return { enabled: false, reason: missingSupabaseEnv() };
   return { enabled: true, reason: "Mirroring attendance to Supabase erp_* tables" };
 }
 
